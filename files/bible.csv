@@ -1,0 +1,1190 @@
+id,livro,capitulo,lido
+1,Génesis,1,FALSE
+2,Génesis,2,FALSE
+3,Génesis,3,FALSE
+4,Génesis,4,FALSE
+5,Génesis,5,FALSE
+6,Génesis,6,FALSE
+7,Génesis,7,FALSE
+8,Génesis,8,FALSE
+9,Génesis,9,FALSE
+10,Génesis,10,FALSE
+11,Génesis,11,FALSE
+12,Génesis,12,FALSE
+13,Génesis,13,FALSE
+14,Génesis,14,FALSE
+15,Génesis,15,FALSE
+16,Génesis,16,FALSE
+17,Génesis,17,FALSE
+18,Génesis,18,FALSE
+19,Génesis,19,FALSE
+20,Génesis,20,FALSE
+21,Génesis,21,FALSE
+22,Génesis,22,FALSE
+23,Génesis,23,FALSE
+24,Génesis,24,FALSE
+25,Génesis,25,FALSE
+26,Génesis,26,FALSE
+27,Génesis,27,FALSE
+28,Génesis,28,FALSE
+29,Génesis,29,FALSE
+30,Génesis,30,FALSE
+31,Génesis,31,FALSE
+32,Génesis,32,FALSE
+33,Génesis,33,FALSE
+34,Génesis,34,FALSE
+35,Génesis,35,FALSE
+36,Génesis,36,FALSE
+37,Génesis,37,FALSE
+38,Génesis,38,FALSE
+39,Génesis,39,FALSE
+40,Génesis,40,FALSE
+41,Génesis,41,FALSE
+42,Génesis,42,FALSE
+43,Génesis,43,FALSE
+44,Génesis,44,FALSE
+45,Génesis,45,FALSE
+46,Génesis,46,FALSE
+47,Génesis,47,FALSE
+48,Génesis,48,FALSE
+49,Génesis,49,FALSE
+50,Génesis,50,FALSE
+51,Êxodo,1,FALSE
+52,Êxodo,2,FALSE
+53,Êxodo,3,FALSE
+54,Êxodo,4,FALSE
+55,Êxodo,5,FALSE
+56,Êxodo,6,FALSE
+57,Êxodo,7,FALSE
+58,Êxodo,8,FALSE
+59,Êxodo,9,FALSE
+60,Êxodo,10,FALSE
+61,Êxodo,11,FALSE
+62,Êxodo,12,FALSE
+63,Êxodo,13,FALSE
+64,Êxodo,14,FALSE
+65,Êxodo,15,FALSE
+66,Êxodo,16,FALSE
+67,Êxodo,17,FALSE
+68,Êxodo,18,FALSE
+69,Êxodo,19,FALSE
+70,Êxodo,20,FALSE
+71,Êxodo,21,FALSE
+72,Êxodo,22,FALSE
+73,Êxodo,23,FALSE
+74,Êxodo,24,FALSE
+75,Êxodo,25,FALSE
+76,Êxodo,26,FALSE
+77,Êxodo,27,FALSE
+78,Êxodo,28,FALSE
+79,Êxodo,29,FALSE
+80,Êxodo,30,FALSE
+81,Êxodo,31,FALSE
+82,Êxodo,32,FALSE
+83,Êxodo,33,FALSE
+84,Êxodo,34,FALSE
+85,Êxodo,35,FALSE
+86,Êxodo,36,FALSE
+87,Êxodo,37,FALSE
+88,Êxodo,38,FALSE
+89,Êxodo,39,FALSE
+90,Êxodo,40,FALSE
+91,Levítico,1,FALSE
+92,Levítico,2,FALSE
+93,Levítico,3,FALSE
+94,Levítico,4,FALSE
+95,Levítico,5,FALSE
+96,Levítico,6,FALSE
+97,Levítico,7,FALSE
+98,Levítico,8,FALSE
+99,Levítico,9,FALSE
+100,Levítico,10,FALSE
+101,Levítico,11,FALSE
+102,Levítico,12,FALSE
+103,Levítico,13,FALSE
+104,Levítico,14,FALSE
+105,Levítico,15,FALSE
+106,Levítico,16,FALSE
+107,Levítico,17,FALSE
+108,Levítico,18,FALSE
+109,Levítico,19,FALSE
+110,Levítico,20,FALSE
+111,Levítico,21,FALSE
+112,Levítico,22,FALSE
+113,Levítico,23,FALSE
+114,Levítico,24,FALSE
+115,Levítico,25,FALSE
+116,Levítico,26,FALSE
+117,Levítico,27,FALSE
+118,Números,1,FALSE
+119,Números,2,FALSE
+120,Números,3,FALSE
+121,Números,4,FALSE
+122,Números,5,FALSE
+123,Números,6,FALSE
+124,Números,7,FALSE
+125,Números,8,FALSE
+126,Números,9,FALSE
+127,Números,10,FALSE
+128,Números,11,FALSE
+129,Números,12,FALSE
+130,Números,13,FALSE
+131,Números,14,FALSE
+132,Números,15,FALSE
+133,Números,16,FALSE
+134,Números,17,FALSE
+135,Números,18,FALSE
+136,Números,19,FALSE
+137,Números,20,FALSE
+138,Números,21,FALSE
+139,Números,22,FALSE
+140,Números,23,FALSE
+141,Números,24,FALSE
+142,Números,25,FALSE
+143,Números,26,FALSE
+144,Números,27,FALSE
+145,Números,28,FALSE
+146,Números,29,FALSE
+147,Números,30,FALSE
+148,Números,31,FALSE
+149,Números,32,FALSE
+150,Números,33,FALSE
+151,Números,34,FALSE
+152,Números,35,FALSE
+153,Números,36,FALSE
+154,Deuteronómio,1,FALSE
+155,Deuteronómio,2,FALSE
+156,Deuteronómio,3,FALSE
+157,Deuteronómio,4,FALSE
+158,Deuteronómio,5,FALSE
+159,Deuteronómio,6,FALSE
+160,Deuteronómio,7,FALSE
+161,Deuteronómio,8,FALSE
+162,Deuteronómio,9,FALSE
+163,Deuteronómio,10,FALSE
+164,Deuteronómio,11,FALSE
+165,Deuteronómio,12,FALSE
+166,Deuteronómio,13,FALSE
+167,Deuteronómio,14,FALSE
+168,Deuteronómio,15,FALSE
+169,Deuteronómio,16,FALSE
+170,Deuteronómio,17,FALSE
+171,Deuteronómio,18,FALSE
+172,Deuteronómio,19,FALSE
+173,Deuteronómio,20,FALSE
+174,Deuteronómio,21,FALSE
+175,Deuteronómio,22,FALSE
+176,Deuteronómio,23,FALSE
+177,Deuteronómio,24,FALSE
+178,Deuteronómio,25,FALSE
+179,Deuteronómio,26,FALSE
+180,Deuteronómio,27,FALSE
+181,Deuteronómio,28,FALSE
+182,Deuteronómio,29,FALSE
+183,Deuteronómio,30,FALSE
+184,Deuteronómio,31,FALSE
+185,Deuteronómio,32,FALSE
+186,Deuteronómio,33,FALSE
+187,Deuteronómio,34,FALSE
+188,Josué,1,FALSE
+189,Josué,2,FALSE
+190,Josué,3,FALSE
+191,Josué,4,FALSE
+192,Josué,5,FALSE
+193,Josué,6,FALSE
+194,Josué,7,FALSE
+195,Josué,8,FALSE
+196,Josué,9,FALSE
+197,Josué,10,FALSE
+198,Josué,11,FALSE
+199,Josué,12,FALSE
+200,Josué,13,FALSE
+201,Josué,14,FALSE
+202,Josué,15,FALSE
+203,Josué,16,FALSE
+204,Josué,17,FALSE
+205,Josué,18,FALSE
+206,Josué,19,FALSE
+207,Josué,20,FALSE
+208,Josué,21,FALSE
+209,Josué,22,FALSE
+210,Josué,23,FALSE
+211,Josué,24,FALSE
+212,Juízes,1,FALSE
+213,Juízes,2,FALSE
+214,Juízes,3,FALSE
+215,Juízes,4,FALSE
+216,Juízes,5,FALSE
+217,Juízes,6,FALSE
+218,Juízes,7,FALSE
+219,Juízes,8,FALSE
+220,Juízes,9,FALSE
+221,Juízes,10,FALSE
+222,Juízes,11,FALSE
+223,Juízes,12,FALSE
+224,Juízes,13,FALSE
+225,Juízes,14,FALSE
+226,Juízes,15,FALSE
+227,Juízes,16,FALSE
+228,Juízes,17,FALSE
+229,Juízes,18,FALSE
+230,Juízes,19,FALSE
+231,Juízes,20,FALSE
+232,Juízes,21,FALSE
+233,Rute,1,FALSE
+234,Rute,2,FALSE
+235,Rute,3,FALSE
+236,Rute,4,FALSE
+237,1 Samuel,1,FALSE
+238,1 Samuel,2,FALSE
+239,1 Samuel,3,FALSE
+240,1 Samuel,4,FALSE
+241,1 Samuel,5,FALSE
+242,1 Samuel,6,FALSE
+243,1 Samuel,7,FALSE
+244,1 Samuel,8,FALSE
+245,1 Samuel,9,FALSE
+246,1 Samuel,10,FALSE
+247,1 Samuel,11,FALSE
+248,1 Samuel,12,FALSE
+249,1 Samuel,13,FALSE
+250,1 Samuel,14,FALSE
+251,1 Samuel,15,FALSE
+252,1 Samuel,16,FALSE
+253,1 Samuel,17,FALSE
+254,1 Samuel,18,FALSE
+255,1 Samuel,19,FALSE
+256,1 Samuel,20,FALSE
+257,1 Samuel,21,FALSE
+258,1 Samuel,22,FALSE
+259,1 Samuel,23,FALSE
+260,1 Samuel,24,FALSE
+261,1 Samuel,25,FALSE
+262,1 Samuel,26,FALSE
+263,1 Samuel,27,FALSE
+264,1 Samuel,28,FALSE
+265,1 Samuel,29,FALSE
+266,1 Samuel,30,FALSE
+267,1 Samuel,31,FALSE
+268,2 Samuel,1,FALSE
+269,2 Samuel,2,FALSE
+270,2 Samuel,3,FALSE
+271,2 Samuel,4,FALSE
+272,2 Samuel,5,FALSE
+273,2 Samuel,6,FALSE
+274,2 Samuel,7,FALSE
+275,2 Samuel,8,FALSE
+276,2 Samuel,9,FALSE
+277,2 Samuel,10,FALSE
+278,2 Samuel,11,FALSE
+279,2 Samuel,12,FALSE
+280,2 Samuel,13,FALSE
+281,2 Samuel,14,FALSE
+282,2 Samuel,15,FALSE
+283,2 Samuel,16,FALSE
+284,2 Samuel,17,FALSE
+285,2 Samuel,18,FALSE
+286,2 Samuel,19,FALSE
+287,2 Samuel,20,FALSE
+288,2 Samuel,21,FALSE
+289,2 Samuel,22,FALSE
+290,2 Samuel,23,FALSE
+291,2 Samuel,24,FALSE
+292,1 Reis,1,FALSE
+293,1 Reis,2,FALSE
+294,1 Reis,3,FALSE
+295,1 Reis,4,FALSE
+296,1 Reis,5,FALSE
+297,1 Reis,6,FALSE
+298,1 Reis,7,FALSE
+299,1 Reis,8,FALSE
+300,1 Reis,9,FALSE
+301,1 Reis,10,FALSE
+302,1 Reis,11,FALSE
+303,1 Reis,12,FALSE
+304,1 Reis,13,FALSE
+305,1 Reis,14,FALSE
+306,1 Reis,15,FALSE
+307,1 Reis,16,FALSE
+308,1 Reis,17,FALSE
+309,1 Reis,18,FALSE
+310,1 Reis,19,FALSE
+311,1 Reis,20,FALSE
+312,1 Reis,21,FALSE
+313,1 Reis,22,FALSE
+314,2 Reis,1,FALSE
+315,2 Reis,2,FALSE
+316,2 Reis,3,FALSE
+317,2 Reis,4,FALSE
+318,2 Reis,5,FALSE
+319,2 Reis,6,FALSE
+320,2 Reis,7,FALSE
+321,2 Reis,8,FALSE
+322,2 Reis,9,FALSE
+323,2 Reis,10,FALSE
+324,2 Reis,11,FALSE
+325,2 Reis,12,FALSE
+326,2 Reis,13,FALSE
+327,2 Reis,14,FALSE
+328,2 Reis,15,FALSE
+329,2 Reis,16,FALSE
+330,2 Reis,17,FALSE
+331,2 Reis,18,FALSE
+332,2 Reis,19,FALSE
+333,2 Reis,20,FALSE
+334,2 Reis,21,FALSE
+335,2 Reis,22,FALSE
+336,2 Reis,23,FALSE
+337,2 Reis,24,FALSE
+338,2 Reis,25,FALSE
+339,1 Crónicas,1,FALSE
+340,1 Crónicas,2,FALSE
+341,1 Crónicas,3,FALSE
+342,1 Crónicas,4,FALSE
+343,1 Crónicas,5,FALSE
+344,1 Crónicas,6,FALSE
+345,1 Crónicas,7,FALSE
+346,1 Crónicas,8,FALSE
+347,1 Crónicas,9,FALSE
+348,1 Crónicas,10,FALSE
+349,1 Crónicas,11,FALSE
+350,1 Crónicas,12,FALSE
+351,1 Crónicas,13,FALSE
+352,1 Crónicas,14,FALSE
+353,1 Crónicas,15,FALSE
+354,1 Crónicas,16,FALSE
+355,1 Crónicas,17,FALSE
+356,1 Crónicas,18,FALSE
+357,1 Crónicas,19,FALSE
+358,1 Crónicas,20,FALSE
+359,1 Crónicas,21,FALSE
+360,1 Crónicas,22,FALSE
+361,1 Crónicas,23,FALSE
+362,1 Crónicas,24,FALSE
+363,1 Crónicas,25,FALSE
+364,1 Crónicas,26,FALSE
+365,1 Crónicas,27,FALSE
+366,1 Crónicas,28,FALSE
+367,1 Crónicas,29,FALSE
+368,2 Crónicas,1,FALSE
+369,2 Crónicas,2,FALSE
+370,2 Crónicas,3,FALSE
+371,2 Crónicas,4,FALSE
+372,2 Crónicas,5,FALSE
+373,2 Crónicas,6,FALSE
+374,2 Crónicas,7,FALSE
+375,2 Crónicas,8,FALSE
+376,2 Crónicas,9,FALSE
+377,2 Crónicas,10,FALSE
+378,2 Crónicas,11,FALSE
+379,2 Crónicas,12,FALSE
+380,2 Crónicas,13,FALSE
+381,2 Crónicas,14,FALSE
+382,2 Crónicas,15,FALSE
+383,2 Crónicas,16,FALSE
+384,2 Crónicas,17,FALSE
+385,2 Crónicas,18,FALSE
+386,2 Crónicas,19,FALSE
+387,2 Crónicas,20,FALSE
+388,2 Crónicas,21,FALSE
+389,2 Crónicas,22,FALSE
+390,2 Crónicas,23,FALSE
+391,2 Crónicas,24,FALSE
+392,2 Crónicas,25,FALSE
+393,2 Crónicas,26,FALSE
+394,2 Crónicas,27,FALSE
+395,2 Crónicas,28,FALSE
+396,2 Crónicas,29,FALSE
+397,2 Crónicas,30,FALSE
+398,2 Crónicas,31,FALSE
+399,2 Crónicas,32,FALSE
+400,2 Crónicas,33,FALSE
+401,2 Crónicas,34,FALSE
+402,2 Crónicas,35,FALSE
+403,2 Crónicas,36,FALSE
+404,Esdras,1,FALSE
+405,Esdras,2,FALSE
+406,Esdras,3,FALSE
+407,Esdras,4,FALSE
+408,Esdras,5,FALSE
+409,Esdras,6,FALSE
+410,Esdras,7,FALSE
+411,Esdras,8,FALSE
+412,Esdras,9,FALSE
+413,Esdras,10,FALSE
+414,Neemias,1,FALSE
+415,Neemias,2,FALSE
+416,Neemias,3,FALSE
+417,Neemias,4,FALSE
+418,Neemias,5,FALSE
+419,Neemias,6,FALSE
+420,Neemias,7,FALSE
+421,Neemias,8,FALSE
+422,Neemias,9,FALSE
+423,Neemias,10,FALSE
+424,Neemias,11,FALSE
+425,Neemias,12,FALSE
+426,Neemias,13,FALSE
+427,Ester,1,FALSE
+428,Ester,2,FALSE
+429,Ester,3,FALSE
+430,Ester,4,FALSE
+431,Ester,5,FALSE
+432,Ester,6,FALSE
+433,Ester,7,FALSE
+434,Ester,8,FALSE
+435,Ester,9,FALSE
+436,Ester,10,FALSE
+437,Jó,1,FALSE
+438,Jó,2,FALSE
+439,Jó,3,FALSE
+440,Jó,4,FALSE
+441,Jó,5,FALSE
+442,Jó,6,FALSE
+443,Jó,7,FALSE
+444,Jó,8,FALSE
+445,Jó,9,FALSE
+446,Jó,10,FALSE
+447,Jó,11,FALSE
+448,Jó,12,FALSE
+449,Jó,13,FALSE
+440,Jó,14,FALSE
+451,Jó,15,FALSE
+452,Jó,16,FALSE
+453,Jó,17,FALSE
+454,Jó,18,FALSE
+455,Jó,19,FALSE
+456,Jó,20,FALSE
+457,Jó,21,FALSE
+458,Jó,22,FALSE
+459,Jó,23,FALSE
+460,Jó,24,FALSE
+461,Jó,25,FALSE
+462,Jó,26,FALSE
+463,Jó,27,FALSE
+464,Jó,28,FALSE
+465,Jó,29,FALSE
+466,Jó,30,FALSE
+467,Jó,31,FALSE
+468,Jó,32,FALSE
+469,Jó,33,FALSE
+470,Jó,34,FALSE
+471,Jó,35,FALSE
+472,Jó,36,FALSE
+473,Jó,37,FALSE
+474,Jó,38,FALSE
+475,Jó,39,FALSE
+476,Jó,40,FALSE
+477,Jó,41,FALSE
+478,Jó,42,FALSE
+479,Salmos,1,FALSE
+480,Salmos,2,FALSE
+481,Salmos,3,FALSE
+482,Salmos,4,FALSE
+483,Salmos,5,FALSE
+484,Salmos,6,FALSE
+485,Salmos,7,FALSE
+486,Salmos,8,FALSE
+487,Salmos,9,FALSE
+488,Salmos,10,FALSE
+489,Salmos,11,FALSE
+490,Salmos,12,FALSE
+491,Salmos,13,FALSE
+492,Salmos,14,FALSE
+493,Salmos,15,FALSE
+494,Salmos,16,FALSE
+495,Salmos,17,FALSE
+496,Salmos,18,FALSE
+497,Salmos,19,FALSE
+498,Salmos,20,FALSE
+499,Salmos,21,FALSE
+500,Salmos,22,FALSE
+501,Salmos,23,FALSE
+502,Salmos,24,FALSE
+503,Salmos,25,FALSE
+504,Salmos,26,FALSE
+505,Salmos,27,FALSE
+506,Salmos,28,FALSE
+507,Salmos,29,FALSE
+508,Salmos,30,FALSE
+509,Salmos,31,FALSE
+510,Salmos,32,FALSE
+511,Salmos,33,FALSE
+512,Salmos,34,FALSE
+513,Salmos,35,FALSE
+514,Salmos,36,FALSE
+515,Salmos,37,FALSE
+516,Salmos,38,FALSE
+517,Salmos,39,FALSE
+518,Salmos,40,FALSE
+519,Salmos,41,FALSE
+520,Salmos,42,FALSE
+521,Salmos,43,FALSE
+522,Salmos,44,FALSE
+523,Salmos,45,FALSE
+524,Salmos,46,FALSE
+525,Salmos,47,FALSE
+526,Salmos,48,FALSE
+527,Salmos,49,FALSE
+528,Salmos,50,FALSE
+529,Salmos,51,FALSE
+530,Salmos,52,FALSE
+531,Salmos,53,FALSE
+532,Salmos,54,FALSE
+533,Salmos,55,FALSE
+534,Salmos,56,FALSE
+535,Salmos,57,FALSE
+536,Salmos,58,FALSE
+537,Salmos,59,FALSE
+538,Salmos,60,FALSE
+539,Salmos,61,FALSE
+540,Salmos,62,FALSE
+541,Salmos,63,FALSE
+542,Salmos,64,FALSE
+543,Salmos,65,FALSE
+544,Salmos,66,FALSE
+545,Salmos,67,FALSE
+546,Salmos,68,FALSE
+547,Salmos,69,FALSE
+548,Salmos,70,FALSE
+549,Salmos,71,FALSE
+550,Salmos,72,FALSE
+551,Salmos,73,FALSE
+552,Salmos,74,FALSE
+553,Salmos,75,FALSE
+554,Salmos,76,FALSE
+555,Salmos,77,FALSE
+556,Salmos,78,FALSE
+557,Salmos,79,FALSE
+558,Salmos,80,FALSE
+559,Salmos,81,FALSE
+560,Salmos,82,FALSE
+561,Salmos,83,FALSE
+562,Salmos,84,FALSE
+563,Salmos,85,FALSE
+564,Salmos,86,FALSE
+565,Salmos,87,FALSE
+566,Salmos,88,FALSE
+567,Salmos,89,FALSE
+568,Salmos,90,FALSE
+569,Salmos,91,FALSE
+570,Salmos,92,FALSE
+571,Salmos,93,FALSE
+572,Salmos,94,FALSE
+573,Salmos,95,FALSE
+574,Salmos,96,FALSE
+575,Salmos,97,FALSE
+576,Salmos,98,FALSE
+577,Salmos,99,FALSE
+578,Salmos,100,FALSE
+579,Salmos,101,FALSE
+580,Salmos,102,FALSE
+581,Salmos,103,FALSE
+582,Salmos,104,FALSE
+583,Salmos,105,FALSE
+584,Salmos,106,FALSE
+585,Salmos,107,FALSE
+586,Salmos,108,FALSE
+587,Salmos,109,FALSE
+588,Salmos,110,FALSE
+589,Salmos,111,FALSE
+590,Salmos,112,FALSE
+591,Salmos,113,FALSE
+592,Salmos,114,FALSE
+593,Salmos,115,FALSE
+594,Salmos,116,FALSE
+595,Salmos,117,FALSE
+596,Salmos,118,FALSE
+597,Salmos,119,FALSE
+598,Salmos,120,FALSE
+599,Salmos,121,FALSE
+600,Salmos,122,FALSE
+601,Salmos,123,FALSE
+602,Salmos,124,FALSE
+603,Salmos,125,FALSE
+604,Salmos,126,FALSE
+605,Salmos,127,FALSE
+606,Salmos,128,FALSE
+607,Salmos,129,FALSE
+608,Salmos,130,FALSE
+609,Salmos,131,FALSE
+610,Salmos,132,FALSE
+611,Salmos,133,FALSE
+612,Salmos,134,FALSE
+613,Salmos,135,FALSE
+614,Salmos,136,FALSE
+615,Salmos,137,FALSE
+616,Salmos,138,FALSE
+617,Salmos,139,FALSE
+618,Salmos,140,FALSE
+619,Salmos,141,FALSE
+620,Salmos,142,FALSE
+621,Salmos,143,FALSE
+622,Salmos,144,FALSE
+623,Salmos,145,FALSE
+624,Salmos,146,FALSE
+625,Salmos,147,FALSE
+626,Salmos,148,FALSE
+627,Salmos,149,FALSE
+628,Salmos,150,FALSE
+629,Provérbios,1,FALSE
+630,Provérbios,2,FALSE
+631,Provérbios,3,FALSE
+632,Provérbios,4,FALSE
+633,Provérbios,5,FALSE
+634,Provérbios,6,FALSE
+635,Provérbios,7,FALSE
+636,Provérbios,8,FALSE
+637,Provérbios,9,FALSE
+638,Provérbios,10,FALSE
+639,Provérbios,11,FALSE
+640,Provérbios,12,FALSE
+641,Provérbios,13,FALSE
+642,Provérbios,14,FALSE
+643,Provérbios,15,FALSE
+644,Provérbios,16,FALSE
+645,Provérbios,17,FALSE
+646,Provérbios,18,FALSE
+647,Provérbios,19,FALSE
+648,Provérbios,20,FALSE
+649,Provérbios,21,FALSE
+650,Provérbios,22,FALSE
+651,Provérbios,23,FALSE
+652,Provérbios,24,FALSE
+653,Provérbios,25,FALSE
+654,Provérbios,26,FALSE
+655,Provérbios,27,FALSE
+656,Provérbios,28,FALSE
+657,Provérbios,29,FALSE
+658,Provérbios,30,FALSE
+659,Provérbios,31,FALSE
+660,Eclesiastes,1,FALSE
+661,Eclesiastes,2,FALSE
+662,Eclesiastes,3,FALSE
+663,Eclesiastes,4,FALSE
+664,Eclesiastes,5,FALSE
+665,Eclesiastes,6,FALSE
+666,Eclesiastes,7,FALSE
+667,Eclesiastes,8,FALSE
+668,Eclesiastes,9,FALSE
+669,Eclesiastes,10,FALSE
+670,Eclesiastes,11,FALSE
+671,Eclesiastes,12,FALSE
+672,Cantares,1,FALSE
+673,Cantares,2,FALSE
+674,Cantares,3,FALSE
+675,Cantares,4,FALSE
+676,Cantares,5,FALSE
+677,Cantares,6,FALSE
+678,Cantares,7,FALSE
+679,Cantares,8,FALSE
+680,Isaías,1,FALSE
+681,Isaías,2,FALSE
+682,Isaías,3,FALSE
+683,Isaías,4,FALSE
+684,Isaías,5,FALSE
+685,Isaías,6,FALSE
+686,Isaías,7,FALSE
+687,Isaías,8,FALSE
+688,Isaías,9,FALSE
+689,Isaías,10,FALSE
+690,Isaías,11,FALSE
+691,Isaías,12,FALSE
+692,Isaías,13,FALSE
+693,Isaías,14,FALSE
+694,Isaías,15,FALSE
+695,Isaías,16,FALSE
+696,Isaías,17,FALSE
+697,Isaías,18,FALSE
+698,Isaías,19,FALSE
+699,Isaías,20,FALSE
+700,Isaías,21,FALSE
+701,Isaías,22,FALSE
+702,Isaías,23,FALSE
+703,Isaías,24,FALSE
+704,Isaías,25,FALSE
+705,Isaías,26,FALSE
+706,Isaías,27,FALSE
+707,Isaías,28,FALSE
+708,Isaías,29,FALSE
+709,Isaías,30,FALSE
+710,Isaías,31,FALSE
+711,Isaías,32,FALSE
+712,Isaías,33,FALSE
+713,Isaías,34,FALSE
+714,Isaías,35,FALSE
+715,Isaías,36,FALSE
+716,Isaías,37,FALSE
+717,Isaías,38,FALSE
+718,Isaías,39,FALSE
+719,Isaías,40,FALSE
+720,Isaías,41,FALSE
+721,Isaías,42,FALSE
+722,Isaías,43,FALSE
+723,Isaías,44,FALSE
+724,Isaías,45,FALSE
+725,Isaías,46,FALSE
+726,Isaías,47,FALSE
+727,Isaías,48,FALSE
+728,Isaías,49,FALSE
+729,Isaías,50,FALSE
+730,Isaías,51,FALSE
+731,Isaías,52,FALSE
+732,Isaías,53,FALSE
+733,Isaías,54,FALSE
+734,Isaías,55,FALSE
+735,Isaías,56,FALSE
+736,Isaías,57,FALSE
+737,Isaías,58,FALSE
+738,Isaías,59,FALSE
+739,Isaías,60,FALSE
+740,Isaías,61,FALSE
+741,Isaías,62,FALSE
+742,Isaías,63,FALSE
+743,Isaías,64,FALSE
+744,Isaías,65,FALSE
+745,Isaías,66,FALSE
+746,Jeremias,1,FALSE
+747,Jeremias,2,FALSE
+748,Jeremias,3,FALSE
+749,Jeremias,4,FALSE
+750,Jeremias,5,FALSE
+751,Jeremias,6,FALSE
+752,Jeremias,7,FALSE
+753,Jeremias,8,FALSE
+754,Jeremias,9,FALSE
+755,Jeremias,10,FALSE
+756,Jeremias,11,FALSE
+757,Jeremias,12,FALSE
+758,Jeremias,13,FALSE
+759,Jeremias,14,FALSE
+760,Jeremias,15,FALSE
+761,Jeremias,16,FALSE
+762,Jeremias,17,FALSE
+763,Jeremias,18,FALSE
+764,Jeremias,19,FALSE
+765,Jeremias,20,FALSE
+766,Jeremias,21,FALSE
+767,Jeremias,22,FALSE
+768,Jeremias,23,FALSE
+769,Jeremias,24,FALSE
+770,Jeremias,25,FALSE
+771,Jeremias,26,FALSE
+772,Jeremias,27,FALSE
+773,Jeremias,28,FALSE
+774,Jeremias,29,FALSE
+775,Jeremias,30,FALSE
+776,Jeremias,31,FALSE
+777,Jeremias,32,FALSE
+778,Jeremias,33,FALSE
+779,Jeremias,34,FALSE
+780,Jeremias,35,FALSE
+781,Jeremias,36,FALSE
+782,Jeremias,37,FALSE
+783,Jeremias,38,FALSE
+784,Jeremias,39,FALSE
+785,Jeremias,40,FALSE
+786,Jeremias,41,FALSE
+787,Jeremias,42,FALSE
+788,Jeremias,43,FALSE
+789,Jeremias,44,FALSE
+790,Jeremias,45,FALSE
+791,Jeremias,46,FALSE
+792,Jeremias,47,FALSE
+793,Jeremias,48,FALSE
+794,Jeremias,49,FALSE
+795,Jeremias,50,FALSE
+796,Jeremias,51,FALSE
+797,Jeremias,52,FALSE
+798,Lamentações,1,FALSE
+799,Lamentações,2,FALSE
+800,Lamentações,3,FALSE
+801,Lamentações,4,FALSE
+802,Lamentações,5,FALSE
+803,Ezequiel,1,FALSE
+804,Ezequiel,2,FALSE
+805,Ezequiel,3,FALSE
+806,Ezequiel,4,FALSE
+807,Ezequiel,5,FALSE
+808,Ezequiel,6,FALSE
+809,Ezequiel,7,FALSE
+810,Ezequiel,8,FALSE
+811,Ezequiel,9,FALSE
+812,Ezequiel,10,FALSE
+813,Ezequiel,11,FALSE
+814,Ezequiel,12,FALSE
+815,Ezequiel,13,FALSE
+816,Ezequiel,14,FALSE
+817,Ezequiel,15,FALSE
+818,Ezequiel,16,FALSE
+819,Ezequiel,17,FALSE
+820,Ezequiel,18,FALSE
+821,Ezequiel,19,FALSE
+822,Ezequiel,20,FALSE
+823,Ezequiel,21,FALSE
+824,Ezequiel,22,FALSE
+825,Ezequiel,23,FALSE
+826,Ezequiel,24,FALSE
+827,Ezequiel,25,FALSE
+828,Ezequiel,26,FALSE
+829,Ezequiel,27,FALSE
+830,Ezequiel,28,FALSE
+831,Ezequiel,29,FALSE
+832,Ezequiel,30,FALSE
+833,Ezequiel,31,FALSE
+834,Ezequiel,32,FALSE
+835,Ezequiel,33,FALSE
+836,Ezequiel,34,FALSE
+837,Ezequiel,35,FALSE
+838,Ezequiel,36,FALSE
+839,Ezequiel,37,FALSE
+840,Ezequiel,38,FALSE
+841,Ezequiel,39,FALSE
+842,Ezequiel,40,FALSE
+843,Ezequiel,41,FALSE
+844,Ezequiel,42,FALSE
+845,Ezequiel,43,FALSE
+846,Ezequiel,44,FALSE
+847,Ezequiel,45,FALSE
+848,Ezequiel,46,FALSE
+849,Ezequiel,47,FALSE
+850,Ezequiel,48,FALSE
+851,Daniel,1,FALSE
+852,Daniel,2,FALSE
+853,Daniel,3,FALSE
+854,Daniel,4,FALSE
+855,Daniel,5,FALSE
+856,Daniel,6,FALSE
+857,Daniel,7,FALSE
+858,Daniel,8,FALSE
+859,Daniel,9,FALSE
+860,Daniel,10,FALSE
+861,Daniel,11,FALSE
+862,Daniel,12,FALSE
+863,Oseias,1,FALSE
+864,Oseias,2,FALSE
+865,Oseias,3,FALSE
+866,Oseias,4,FALSE
+867,Oseias,5,FALSE
+868,Oseias,6,FALSE
+869,Oseias,7,FALSE
+870,Oseias,8,FALSE
+871,Oseias,9,FALSE
+872,Oseias,10,FALSE
+873,Oseias,11,FALSE
+874,Oseias,12,FALSE
+875,Oseias,13,FALSE
+876,Oseias,14,FALSE
+877,Joel,1,FALSE
+878,Joel,2,FALSE
+879,Joel,3,FALSE
+880,Amós,1,FALSE
+881,Amós,2,FALSE
+882,Amós,3,FALSE
+883,Amós,4,FALSE
+884,Amós,5,FALSE
+885,Amós,6,FALSE
+886,Amós,7,FALSE
+887,Amós,8,FALSE
+888,Amós,9,FALSE
+889,Obadias,1,FALSE
+890,Jonas,1,FALSE
+891,Jonas,2,FALSE
+892,Jonas,3,FALSE
+893,Jonas,4,FALSE
+894,Miqueias,1,FALSE
+895,Miqueias,2,FALSE
+896,Miqueias,3,FALSE
+897,Miqueias,4,FALSE
+898,Miqueias,5,FALSE
+899,Miqueias,6,FALSE
+900,Miqueias,7,FALSE
+901,Naum,1,FALSE
+902,Naum,2,FALSE
+903,Naum,3,FALSE
+904,Habacuque,1,FALSE
+905,Habacuque,2,FALSE
+906,Habacuque,3,FALSE
+907,Sofonias,1,FALSE
+908,Sofonias,2,FALSE
+909,Sofonias,3,FALSE
+910,Ageu,1,FALSE
+911,Ageu,2,FALSE
+912,Zacarias,1,FALSE
+913,Zacarias,2,FALSE
+914,Zacarias,3,FALSE
+915,Zacarias,4,FALSE
+916,Zacarias,5,FALSE
+917,Zacarias,6,FALSE
+918,Zacarias,7,FALSE
+919,Zacarias,8,FALSE
+920,Zacarias,9,FALSE
+921,Zacarias,10,FALSE
+922,Zacarias,11,FALSE
+923,Zacarias,12,FALSE
+924,Zacarias,13,FALSE
+925,Zacarias,14,FALSE
+926,Malaquias,1,FALSE
+927,Malaquias,2,FALSE
+928,Malaquias,3,FALSE
+929,Malaquias,4,FALSE
+930,Mateus,1,FALSE
+931,Mateus,2,FALSE
+932,Mateus,3,FALSE
+933,Mateus,4,FALSE
+934,Mateus,5,FALSE
+935,Mateus,6,FALSE
+936,Mateus,7,FALSE
+937,Mateus,8,FALSE
+938,Mateus,9,FALSE
+939,Mateus,10,FALSE
+940,Mateus,11,FALSE
+941,Mateus,12,FALSE
+942,Mateus,13,FALSE
+943,Mateus,14,FALSE
+944,Mateus,15,FALSE
+945,Mateus,16,FALSE
+946,Mateus,17,FALSE
+947,Mateus,18,FALSE
+948,Mateus,19,FALSE
+949,Mateus,20,FALSE
+950,Mateus,21,FALSE
+951,Mateus,22,FALSE
+952,Mateus,23,FALSE
+953,Mateus,24,FALSE
+954,Mateus,25,FALSE
+955,Mateus,26,FALSE
+956,Mateus,27,FALSE
+957,Mateus,28,FALSE
+958,Marcos,1,FALSE
+959,Marcos,2,FALSE
+960,Marcos,3,FALSE
+961,Marcos,4,FALSE
+962,Marcos,5,FALSE
+963,Marcos,6,FALSE
+964,Marcos,7,FALSE
+965,Marcos,8,FALSE
+966,Marcos,9,FALSE
+967,Marcos,10,FALSE
+968,Marcos,11,FALSE
+969,Marcos,12,FALSE
+970,Marcos,13,FALSE
+971,Marcos,14,FALSE
+972,Marcos,15,FALSE
+973,Marcos,16,FALSE
+974,Lucas,1,FALSE
+975,Lucas,2,FALSE
+976,Lucas,3,FALSE
+977,Lucas,4,FALSE
+978,Lucas,5,FALSE
+979,Lucas,6,FALSE
+980,Lucas,7,FALSE
+981,Lucas,8,FALSE
+982,Lucas,9,FALSE
+983,Lucas,10,FALSE
+984,Lucas,11,FALSE
+985,Lucas,12,FALSE
+986,Lucas,13,FALSE
+987,Lucas,14,FALSE
+988,Lucas,15,FALSE
+989,Lucas,16,FALSE
+990,Lucas,17,FALSE
+991,Lucas,18,FALSE
+992,Lucas,19,FALSE
+993,Lucas,20,FALSE
+994,Lucas,21,FALSE
+995,Lucas,22,FALSE
+996,Lucas,23,FALSE
+997,Lucas,24,FALSE
+998,João,1,FALSE
+999,João,2,FALSE
+1000,João,3,FALSE
+1001,João,4,FALSE
+1002,João,5,FALSE
+1003,João,6,FALSE
+1004,João,7,FALSE
+1005,João,8,FALSE
+1006,João,9,FALSE
+1007,João,10,FALSE
+1008,João,11,FALSE
+1009,João,12,FALSE
+1010,João,13,FALSE
+1011,João,14,FALSE
+1012,João,15,FALSE
+1013,João,16,FALSE
+1014,João,17,FALSE
+1015,João,18,FALSE
+1016,João,19,FALSE
+1017,João,20,FALSE
+1018,João,21,FALSE
+1019,Atos,1,FALSE
+1020,Atos,2,FALSE
+1021,Atos,3,FALSE
+1022,Atos,4,FALSE
+1023,Atos,5,FALSE
+1024,Atos,6,FALSE
+1025,Atos,7,FALSE
+1026,Atos,8,FALSE
+1027,Atos,9,FALSE
+1028,Atos,10,FALSE
+1029,Atos,11,FALSE
+1030,Atos,12,FALSE
+1031,Atos,13,FALSE
+1032,Atos,14,FALSE
+1033,Atos,15,FALSE
+1034,Atos,16,FALSE
+1035,Atos,17,FALSE
+1036,Atos,18,FALSE
+1037,Atos,19,FALSE
+1038,Atos,20,FALSE
+1039,Atos,21,FALSE
+1040,Atos,22,FALSE
+1041,Atos,23,FALSE
+1042,Atos,24,FALSE
+1043,Atos,25,FALSE
+1044,Atos,26,FALSE
+1045,Atos,27,FALSE
+1046,Atos,28,FALSE
+1047,Romanos,1,FALSE
+1048,Romanos,2,FALSE
+1049,Romanos,3,FALSE
+1050,Romanos,4,FALSE
+1051,Romanos,5,FALSE
+1052,Romanos,6,FALSE
+1053,Romanos,7,FALSE
+1054,Romanos,8,FALSE
+1055,Romanos,9,FALSE
+1056,Romanos,10,FALSE
+1057,Romanos,11,FALSE
+1058,Romanos,12,FALSE
+1059,Romanos,13,FALSE
+1060,Romanos,14,FALSE
+1061,Romanos,15,FALSE
+1062,Romanos,16,FALSE
+1063,1 Coríntios,1,FALSE
+1064,1 Coríntios,2,FALSE
+1065,1 Coríntios,3,FALSE
+1066,1 Coríntios,4,FALSE
+1067,1 Coríntios,5,FALSE
+1068,1 Coríntios,6,FALSE
+1069,1 Coríntios,7,FALSE
+1070,1 Coríntios,8,FALSE
+1071,1 Coríntios,9,FALSE
+1072,1 Coríntios,10,FALSE
+1073,1 Coríntios,11,FALSE
+1074,1 Coríntios,12,FALSE
+1075,1 Coríntios,13,FALSE
+1076,1 Coríntios,14,FALSE
+1077,1 Coríntios,15,FALSE
+1078,1 Coríntios,16,FALSE
+1079,2 Coríntios,1,FALSE
+1080,2 Coríntios,2,FALSE
+1081,2 Coríntios,3,FALSE
+1082,2 Coríntios,4,FALSE
+1083,2 Coríntios,5,FALSE
+1084,2 Coríntios,6,FALSE
+1085,2 Coríntios,7,FALSE
+1086,2 Coríntios,8,FALSE
+1087,2 Coríntios,9,FALSE
+1088,2 Coríntios,10,FALSE
+1089,2 Coríntios,11,FALSE
+1090,2 Coríntios,12,FALSE
+1091,2 Coríntios,13,FALSE
+1092,Gálatas,1,FALSE
+1093,Gálatas,2,FALSE
+1094,Gálatas,3,FALSE
+1095,Gálatas,4,FALSE
+1096,Gálatas,5,FALSE
+1097,Gálatas,6,FALSE
+1098,Efésios,1,FALSE
+1099,Efésios,2,FALSE
+1100,Efésios,3,FALSE
+1101,Efésios,4,FALSE
+1102,Efésios,5,FALSE
+1103,Efésios,6,FALSE
+1104,Filipenses,1,FALSE
+1105,Filipenses,2,FALSE
+1106,Filipenses,3,FALSE
+1107,Filipenses,4,FALSE
+1108,Colossenses,1,FALSE
+1109,Colossenses,2,FALSE
+1110,Colossenses,3,FALSE
+1111,Colossenses,4,FALSE
+1112,1 Tessalonicenses,1,FALSE
+1113,1 Tessalonicenses,2,FALSE
+1114,1 Tessalonicenses,3,FALSE
+1115,1 Tessalonicenses,4,FALSE
+1116,1 Tessalonicenses,5,FALSE
+1117,2 Tessalonicenses,1,FALSE
+1118,2 Tessalonicenses,2,FALSE
+1119,2 Tessalonicenses,3,FALSE
+1120,1 Timóteo,1,FALSE
+1121,1 Timóteo,2,FALSE
+1122,1 Timóteo,3,FALSE
+1123,1 Timóteo,4,FALSE
+1124,1 Timóteo,5,FALSE
+1125,1 Timóteo,6,FALSE
+1126,2 Timóteo,1,FALSE
+1127,2 Timóteo,2,FALSE
+1128,2 Timóteo,3,FALSE
+1129,2 Timóteo,4,FALSE
+1130,Tito,1,FALSE
+1131,Tito,2,FALSE
+1132,Tito,3,FALSE
+1133,Filemom,1,FALSE
+1134,Hebreus,1,FALSE
+1135,Hebreus,2,FALSE
+1136,Hebreus,3,FALSE
+1137,Hebreus,4,FALSE
+1138,Hebreus,5,FALSE
+1139,Hebreus,6,FALSE
+1140,Hebreus,7,FALSE
+1141,Hebreus,8,FALSE
+1142,Hebreus,9,FALSE
+1143,Hebreus,10,FALSE
+1144,Hebreus,11,FALSE
+1145,Hebreus,12,FALSE
+1146,Hebreus,13,FALSE
+1147,Tiago,1,FALSE
+1148,Tiago,2,FALSE
+1149,Tiago,3,FALSE
+1150,Tiago,4,FALSE
+1151,Tiago,5,FALSE
+1152,1 Pedro,1,FALSE
+1153,1 Pedro,2,FALSE
+1154,1 Pedro,3,FALSE
+1155,1 Pedro,4,FALSE
+1156,1 Pedro,5,FALSE
+1157,2 Pedro,1,FALSE
+1158,2 Pedro,2,FALSE
+1159,2 Pedro,3,FALSE
+1160,1 João,1,FALSE
+1161,1 João,2,FALSE
+1162,1 João,3,FALSE
+1163,1 João,4,FALSE
+1164,1 João,5,FALSE
+1165,2 João,1,FALSE
+1166,3 João,1,FALSE
+1167,Judas,1,FALSE
+1168,Apocalipse,1,FALSE
+1169,Apocalipse,2,FALSE
+1170,Apocalipse,3,FALSE
+1171,Apocalipse,4,FALSE
+1172,Apocalipse,5,FALSE
+1173,Apocalipse,6,FALSE
+1174,Apocalipse,7,FALSE
+1175,Apocalipse,8,FALSE
+1176,Apocalipse,9,FALSE
+1177,Apocalipse,10,FALSE
+1178,Apocalipse,11,FALSE
+1179,Apocalipse,12,FALSE
+1180,Apocalipse,13,FALSE
+1181,Apocalipse,14,FALSE
+1182,Apocalipse,15,FALSE
+1183,Apocalipse,16,FALSE
+1184,Apocalipse,17,FALSE
+1185,Apocalipse,18,FALSE
+1186,Apocalipse,19,FALSE
+1187,Apocalipse,20,FALSE
+1188,Apocalipse,21,FALSE
+1189,Apocalipse,22,FALSE
