@@ -1,0 +1,495 @@
+{
+  "name": "n8n-priest",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Import bible",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "bible",
+              "fieldType": "file",
+              "acceptFileTypes": ".csv"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        96,
+        -352
+      ],
+      "id": "02e2fa79-fba3-4ccd-b8f4-30fdc00a0151",
+      "name": "On form submission",
+      "webhookId": "aeb32f3c-3851-4402-a00f-8824f1572f65"
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "bible",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        304,
+        -352
+      ],
+      "id": "3677da40-0e1f-4c92-aa6c-95abe3e834bb",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DROP TABLE plano_leitura;\n\nCREATE TABLE plano_leitura (\n    id SERIAL PRIMARY KEY,\n    livro VARCHAR(50),\n    capitulo INT,\n    lido BOOLEAN DEFAULT FALSE\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        128,
+        -608
+      ],
+      "id": "77db0b03-4821-4781-b164-bf31b319b9ce",
+      "name": "DROP AND CREATE",
+      "credentials": {
+        "postgres": {
+          "id": "vjjWfS7QO2wFtC3q",
+          "name": "postgress creds"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "plano_leitura",
+          "mode": "list",
+          "cachedResultName": "plano_leitura"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "capitulo": "={{ $json.capitulo }}",
+            "livro": "={{ $json.livro }}",
+            "lido": "={{ $json.lido }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "livro",
+              "displayName": "livro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "capitulo",
+              "displayName": "capitulo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lido",
+              "displayName": "lido",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        496,
+        -352
+      ],
+      "id": "b996aa70-e3d2-4d2b-92e3-19c608fcddee",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "vjjWfS7QO2wFtC3q",
+          "name": "postgress creds"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "plano_leitura",
+          "mode": "list",
+          "cachedResultName": "plano_leitura"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        336,
+        -592
+      ],
+      "id": "8ff27a6c-42eb-4cc3-8765-d6e652eb30e5",
+      "name": "Show rows",
+      "credentials": {
+        "postgres": {
+          "id": "vjjWfS7QO2wFtC3q",
+          "name": "postgress creds"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -80,
+        -112
+      ],
+      "id": "9d67d18c-c2a5-4686-b509-8624d422a9a1",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.random()*10 }}",
+        "unit": "hours"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        128,
+        -112
+      ],
+      "id": "9749d247-8a05-4e9c-8862-97780df232fa",
+      "name": "Wait",
+      "webhookId": "f1dee95a-e78b-4a9b-aacd-c6bf9baa1165"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, livro, capitulo \nFROM public.plano_leitura \nWHERE lido = FALSE \nORDER BY id ASC \nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        336,
+        -112
+      ],
+      "id": "d09e77e4-e1bb-4655-9875-4c39019fe734",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "vjjWfS7QO2wFtC3q",
+          "name": "postgress creds"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://bible-api.com/{{ $json.livro.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").toLowerCase() }}+{{ $json.capitulo }}?translation=almeida",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        544,
+        -112
+      ],
+      "id": "b7533201-4d58-4a3e-8fcb-e11b415a664e",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "plano_leitura",
+          "mode": "list",
+          "cachedResultName": "plano_leitura"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lido": true,
+            "id": "={{ $('Execute a SQL query').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "livro",
+              "displayName": "livro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "capitulo",
+              "displayName": "capitulo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "lido",
+              "displayName": "lido",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1264,
+        -112
+      ],
+      "id": "f5378cb7-57b3-4cfb-9a92-f4b953fb8747",
+      "name": "Update rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "vjjWfS7QO2wFtC3q",
+          "name": "postgress creds"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Resume o seguinte capítulo numa mensagem : \n{{ $json.text }}\n\nquero que respondas com o Titulo ({{ $json.reference }} )\ne com um resumo do que trata. minimo 100 palavras"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        736,
+        -112
+      ],
+      "id": "733d6edc-9686-425b-8bc3-0676b907a239",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "rpLYfCb1DFnywE5A",
+          "name": "apikey-gemini"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "2042760497",
+        "text": "={{ $json.content.parts[0].text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1056,
+        -112
+      ],
+      "id": "4785b606-27a7-4c4d-a011-83386903ade0",
+      "name": "Send a text message",
+      "webhookId": "34e94335-2764-4b66-b2e5-46b1ae065189",
+      "credentials": {
+        "telegramApi": {
+          "id": "2Bhh7rLplF31ZUlJ",
+          "name": "priestbot"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Update rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "timezone": "Europe/Lisbon",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "2c181a67-0876-4e95-9581-b6cba35fc07b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c0f3d7aac800821bd67c3bb3edb373fa327fdb368642688ffecd1f3dd0afb5bd"
+  },
+  "id": "uoJgHlAA7Lzk2ITTMCoj0",
+  "tags": []
+}
