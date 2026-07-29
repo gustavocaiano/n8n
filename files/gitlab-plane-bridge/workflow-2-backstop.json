@@ -1,0 +1,355 @@
+{
+  "name": "GitLab-Plane Bridge (Backstop)",
+  "nodes": [
+    {
+      "parameters": 1.2,
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        0
+      ],
+      "id": "27d69db7-ee29-4170-a24d-fe63e10fa077",
+      "name": "Every 15 min",
+      "webhookId": "5970fb1d-0df6-4c72-b05f-8e7faff34c2d"
+    },
+    {
+      "parameters": 2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": {
+        "jsCode": "\n// Backstop: read last poll state, emit fetch params\nconst sd = $getWorkflowStaticData('global');\nconst lastSha = sd.lastCommitSha || '';\nconst lastPoll = sd.lastPollTime || '';\n// MVP: single repo config \u2014 user replaces project ID\nconst projectId = 'REPLACE_GITLAB_PROJECT_ID';\nreturn [{\n  json: {\n    projectId: projectId,\n    since: lastPoll, // ISO timestamp of last poll\n    lastSha: lastSha,\n  },\n}];\n"
+      },
+      "position": [
+        240,
+        0
+      ],
+      "id": "bdaea0ac-7bdd-4a1d-99a5-fd1b9571517d",
+      "name": "Backstop Init"
+    },
+    {
+      "parameters": 4.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": {
+        "method": "GET",
+        "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.projectId }}/repository/commits",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "since",
+              "value": "={{ $json.since }}"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "position": [
+        480,
+        0
+      ],
+      "id": "efefb13d-4b80-444f-8f4b-676874262a11",
+      "name": "List Commits",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
+          "name": "GitLab API Token"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": 2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": {
+        "jsCode": "\n// Update dedup pointer to latest commit, pass through commits\nconst sd = $getWorkflowStaticData('global');\nconst commits = $json; // HTTP response is array of commits\nif (commits && commits.length > 0) {\n  const latest = commits[0]; // GitLab returns newest first\n  sd.lastCommitSha = latest.id;\n  sd.lastPollTime = latest.committed_date || new Date().toISOString();\n}\n// Pass through each commit as an item\nconst items = [];\nfor (const c of (commits || [])) {\n  items.push({json: c});\n}\nreturn items;\n"
+      },
+      "position": [
+        720,
+        0
+      ],
+      "id": "40274ff8-427d-4a8f-bd3c-f2f8f26f4b25",
+      "name": "Update Pointer"
+    },
+    {
+      "parameters": 2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": {
+        "jsCode": "\nconst PROJECTS = {\n  DEV: {\n    uuid: 'b5842796-7af7-474c-bf17-012977399c16',\n    states: {\n      backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n      todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n      inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n      inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n      done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n      cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n    },\n  },\n};\nconst WORKSPACE_SLUG = 'REPLACE_WORKSPACE_SLUG';\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  // Returns array of {issueKey, action} where action in: close, reopen, mention\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\nfunction htmlEscape(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\n// Backstop normalize commits (same as Normalize Push but single commit per item)\nconst commit = $json;\nconst msg = commit.message || '';\nconst refs = classifyMessage(msg);\nconst items = [];\nfor (const r of refs) {\n  items.push({\n    json: {\n      issueKey: r.issueKey,\n      action: r.action === 'close' ? 'mention' : r.action, // closes without MR context = mention in backstop\n      commitSha: commit.id,\n      commitUrl: commit.web_url || '',\n      commitMessage: msg,\n      commitTitle: commit.title || msg.split('\\n')[0],\n      author: commit.author_name || '',\n      branch: '',\n      isDefaultBranch: false, // backstop can't easily tell; reducer treats as feature branch\n      source: 'push',\n      isBackstop: true,\n    },\n  });\n}\nreturn items;\n"
+      },
+      "position": [
+        960,
+        0
+      ],
+      "id": "86d470eb-2d04-4ca2-9942-af9402717207",
+      "name": "Normalize Commits"
+    },
+    {
+      "parameters": 2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": {
+        "jsCode": "\nconst PROJECTS = {\n  DEV: {\n    uuid: 'b5842796-7af7-474c-bf17-012977399c16',\n    states: {\n      backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n      todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n      inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n      inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n      done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n      cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n    },\n  },\n};\nconst WORKSPACE_SLUG = 'REPLACE_WORKSPACE_SLUG';\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  // Returns array of {issueKey, action} where action in: close, reopen, mention\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\nfunction htmlEscape(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\n// REDUCER: group raw actions by issue, apply precedence + guards, emit final decision\n// Reads items from input. isBackstop flag restricts downgrades.\nconst isBackstop = true;\n\n// Collect all input items (n8n passes them in $items or via $input.all())\nconst allItems = $input.all ? $input.all().map(i => i.json) : items.map(i => i.json);\nif (!allItems.length) return [];\n\n// Group by issueKey\nconst groups = {};\nfor (const item of allItems) {\n  const key = item.issueKey;\n  if (!groups[key]) groups[key] = [];\n  groups[key].push(item);\n}\n\nconst results = [];\nfor (const issueKey of Object.keys(groups)) {\n  const actions = groups[issueKey];\n  const prefix = issueKey.split('-')[0];\n  const proj = PROJECTS[prefix];\n  if (!proj) continue; // unknown project prefix, skip\n\n  // Determine the strongest action via precedence ladder\n  // Precedence (highest): reopen > merged > close-in-mr > mr-open > mention > mr-closed\n  const hasReopen = actions.some(a => a.action === 'reopen');\n  const hasMerged = actions.some(a => a.action === 'merged');\n  const hasCloseInMr = actions.some(a => a.action === 'close-in-mr');\n  const hasMrOpen = actions.some(a => a.action === 'mr-open');\n  const hasMention = actions.some(a => a.action === 'mention' || a.action === 'close');\n  const hasMrClosed = actions.some(a => a.action === 'mr-closed');\n\n  let desiredState = null;\n  let actionLabel = '';\n  let commentParts = [];\n\n  if (hasReopen) {\n    desiredState = proj.states.inProgress; actionLabel = 'reopen';\n  } else if (hasMerged) {\n    desiredState = proj.states.done; actionLabel = 'merged';\n  } else if (hasCloseInMr) {\n    desiredState = proj.states.inReview; actionLabel = 'close-in-mr';\n  } else if (hasMrOpen) {\n    desiredState = proj.states.inProgress; actionLabel = 'mr-open';\n  } else if (hasMention) {\n    desiredState = proj.states.inProgress; actionLabel = 'mention';\n  } else if (hasMrClosed) {\n    desiredState = proj.states.todo; actionLabel = 'mr-closed';\n  }\n\n  if (!desiredState) continue;\n\n  // Build comment parts from actions\n  for (const a of actions) {\n    if (a.source === 'push' && a.commitUrl) {\n      const shaShort = (a.commitSha || '').substring(0, 7);\n      commentParts.push(`mentioned in commit <a href=\"${a.commitUrl}\"><code>${shaShort}</code></a> by ${a.author || 'unknown'}: <i>${a.commitTitle || ''}</i>`);\n    } else if (a.source === 'mr' && a.mrUrl) {\n      commentParts.push(`MR <a href=\"${a.mrUrl}\">!${a.mrIid || ''}: ${a.mrTitle || ''}</a>`);\n    }\n  }\n\n  // External ID for comment dedup (Plane returns 409 on duplicate external_id)\n  let externalId;\n  if (actionLabel === 'merged' || actionLabel === 'close-in-mr' || actionLabel === 'mr-open' || actionLabel === 'mr-closed') {\n    const a = actions.find(x => x.source === 'mr');\n    externalId = `gitlab-mr-${a && a.mrIid}-${actionLabel}-${issueKey}`;\n  } else {\n    const a = actions.find(x => x.source === 'push' && x.commitSha);\n    externalId = `gitlab-commit-${(a && a.commitSha) || 'unknown'}-${issueKey}`;\n  }\n\n  // GUARDS\n  let shouldChangeState = true;\n  let guardReason = '';\n\n  // In backstop mode, restrict downgrades (Council direction #8)\n  if (isBackstop && (actionLabel === 'mr-closed')) {\n    shouldChangeState = false;\n    guardReason = 'backstop: mr-closed downgrade not allowed in backstop mode';\n  }\n\n  // mr-closed -> Todo is a downgrade; only allowed in webhook mode\n  // (handled above for backstop)\n\n  // We cannot know the CURRENT state here (that comes after Get Work Item).\n  // The guards that depend on current state (Done protection, Cancelled protection,\n  // In Review protection) are applied in a LATER Code node after Get Work Item.\n  // For now, emit the desired state + a flag; the post-fetch node re-evaluates.\n\n  const sentinel = `<!-- n8n-bridge: src=${actions[0].source}, action=${actionLabel}, issue=${issueKey} -->`;\n\n  results.push({\n    json: {\n      issueKey: issueKey,\n      desiredStateName: actionLabel,\n      targetStateUuid: desiredState,\n      shouldChangeState: shouldChangeState,\n      guardReason: guardReason,\n      commentHtml: sentinel + '\\n' + commentParts.join('<br>\\n'),\n      externalId: externalId,\n      externalSource: 'gitlab',\n      mrUrl: actions.find(x => x.mrUrl) ? actions.find(x => x.mrUrl).mrUrl : '',\n      mrTitle: actions.find(x => x.mrTitle) ? actions.find(x => x.mrTitle).mrTitle : '',\n      isBackstop: isBackstop,\n      prefix: prefix,\n    },\n  });\n}\nreturn results;\n"
+      },
+      "position": [
+        1200,
+        0
+      ],
+      "id": "313e0510-5e82-47b9-9a77-c9943c9ad4f5",
+      "name": "Reducer"
+    },
+    {
+      "parameters": 4.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": {
+        "method": "GET",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/work-items/{{ $json.issueKey }}/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "position": [
+        1440,
+        0
+      ],
+      "id": "25524ae9-a31c-43c2-bb1e-cad297d5fbd1",
+      "name": "Get Work Item",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_PLANE_AUTH_ID",
+          "name": "Plane API Key"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": 2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": {
+        "jsCode": "\n// Post-fetch guard: re-evaluate shouldChangeState using current Plane state\nconst wi = $json; // work item from Get Work Item\nconst prevState = $json.state; // UUID of current state\n\n// Pass-through fields from the previous node (stored in $items[0] before this node)\n// n8n: we use $('Reducer').item or the incoming item. For simplicity the Get Work Item\n// node passes through our reducer fields via expressions. Here we read them from $json\n// which n8n merges. In practice the HTTP Request node replaces $json with the response,\n// so we use the pairedItem mechanism. For MVP simplicity, we re-read from the previous\n// code node output using $('Reducer').all()[index]. But n8n Code node gives us $input.\n\n// We rely on the workflow wiring: Get Work Item passes through via \"Include Original Items\"\n// is not available on HTTP Request by default. Instead we use expressions in the HTTP node\n// response field. For MVP, this guard node reads from $input which contains the reducer\n// output merged with the HTTP response via the workflow's item pairing.\n\n// The simplest robust approach: this node receives the reducer output (with desiredStateUuid)\n// AND the Get Work Item response (with id, project, state). We merge them.\n// In n8n, when an HTTP Request follows a Code node, $json is the HTTP response.\n// To access the reducer fields we use $('Reducer').all().\n\nconst reducerItems = $('Reducer').all();\nconst idx = $itemIndex || 0;\nconst r = reducerItems[idx] ? reducerItems[idx].json : {};\n\nconst projStates = {\n  backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n  todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n  inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n  inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n  done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n  cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n};\nconst stateNameByUuid = {};\nfor (const k of Object.keys(projStates)) stateNameByUuid[projStates[k]] = k;\n\nconst currentStateName = stateNameByUuid[wi.state] || 'unknown';\nconst targetStateName = stateNameByUuid[r.targetStateUuid] || 'unknown';\nconst actionLabel = r.desiredStateName || '';\n\nlet shouldChangeState = r.shouldChangeState;\nlet guardReason = r.guardReason || '';\n\n// GUARD 1: Never touch Cancelled\nif (currentStateName === 'cancelled') {\n  shouldChangeState = false;\n  guardReason = 'protected: Cancelled is human-owned';\n}\n// GUARD 2: Never downgrade Done except on explicit reopen\nelse if (currentStateName === 'done' && actionLabel !== 'reopen') {\n  shouldChangeState = false;\n  guardReason = 'protected: Done cannot be downgraded except by reopen';\n}\n// GUARD 3: Never downgrade In Review to In Progress from a bare mention\nelse if (currentStateName === 'inReview' && (actionLabel === 'mention' || actionLabel === 'mr-open')) {\n  shouldChangeState = false;\n  guardReason = 'protected: In Review not downgraded by bare mention';\n}\n// GUARD 4: Already in the target state -> no-op\nelse if (wi.state === r.targetStateUuid) {\n  shouldChangeState = false;\n  guardReason = 'already in target state';\n}\n// GUARD 5: mr-closed downgrade only from In Progress/In Review (not from Backlog/Todo/Done)\nelse if (actionLabel === 'mr-closed' && currentStateName !== 'inProgress' && currentStateName !== 'inReview') {\n  shouldChangeState = false;\n  guardReason = 'mr-closed: can only downgrade from In Progress/In Review';\n}\n\nreturn [{\n  json: {\n    issueKey: r.issueKey,\n    workItemId: wi.id,\n    project: wi.project,\n    currentState: wi.state,\n    currentStateName: currentStateName,\n    targetStateUuid: r.targetStateUuid,\n    targetStateName: targetStateName,\n    shouldChangeState: shouldChangeState,\n    guardReason: guardReason,\n    commentHtml: r.commentHtml,\n    externalId: r.externalId,\n    externalSource: r.externalSource,\n    mrUrl: r.mrUrl || '',\n    mrTitle: r.mrTitle || '',\n  },\n}];\n"
+      },
+      "position": [
+        1680,
+        0
+      ],
+      "id": "9c0e51b4-934b-4671-87f9-5503e484cb13",
+      "name": "Apply Guards"
+    },
+    {
+      "parameters": 4.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": {
+        "method": "POST",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/comments/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { comment_html: $json.commentHtml, access: 'internal', external_id: $json.externalId, external_source: 'gitlab' } }}",
+        "options": {}
+      },
+      "position": [
+        1920,
+        0
+      ],
+      "id": "c16a3397-c667-4b55-975f-aad6d2834b14",
+      "name": "Create Comment",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_PLANE_AUTH_ID",
+          "name": "Plane API Key"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": 2.2,
+      "type": "n8n-nodes-base.if",
+      "typeVersion": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.shouldChangeState }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [
+        2160,
+        0
+      ],
+      "id": "eace2422-73d5-4361-8449-7e4e9f5782e6",
+      "name": "Should Change State?"
+    },
+    {
+      "parameters": 4.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": {
+        "method": "PATCH",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { state: $json.targetStateUuid } }}",
+        "options": {}
+      },
+      "position": [
+        2400,
+        100
+      ],
+      "id": "a5d2d18e-36d2-4e8f-b282-9fab4c1e710f",
+      "name": "Update State",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_PLANE_AUTH_ID",
+          "name": "Plane API Key"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 15 min": {
+      "main": [
+        [
+          {
+            "node": "Backstop Init",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backstop Init": {
+      "main": [
+        [
+          {
+            "node": "List Commits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Commits": {
+      "main": [
+        [
+          {
+            "node": "Update Pointer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Pointer": {
+      "main": [
+        [
+          {
+            "node": "Normalize Commits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Commits": {
+      "main": [
+        [
+          {
+            "node": "Reducer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reducer": {
+      "main": [
+        [
+          {
+            "node": "Get Work Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Work Item": {
+      "main": [
+        [
+          {
+            "node": "Apply Guards",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Guards": {
+      "main": [
+        [
+          {
+            "node": "Create Comment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Should Change State?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Change State?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Update State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f63f9b36-9a47-47ba-911b-36d65db92f8e",
+  "meta": {
+    "instanceId": "gitlab-plane-bridge"
+  },
+  "id": "gl-plane-bs-02",
+  "tags": []
+}
