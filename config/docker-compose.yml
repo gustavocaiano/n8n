@@ -6,6 +6,7 @@ volumes:
 
 networks:
   nginx-proxy-network:
+    name: nginx-proxy-network   # literal name so ../plane/compose.yml can attach as external
     driver: bridge
 
 services:
@@ -39,6 +40,12 @@ services:
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_USER=${POSTGRES_NON_ROOT_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_NON_ROOT_PASSWORD}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # GitLab-Plane bridge config
+      - WORKSPACE_SLUG=${WORKSPACE_SLUG}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - PLANE_PROJECT_DEV=${PLANE_PROJECT_DEV}
+      - GITLAB_GROUP_ID=${GITLAB_GROUP_ID}
     # Porta 5678 removida daqui (fechada para o exterior)
     networks:
       - nginx-proxy-network

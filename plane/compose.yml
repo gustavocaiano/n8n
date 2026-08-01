@@ -1,0 +1,46 @@
+# n8n (Plane/GitLab integration instance) behind the existing Nginx Proxy Manager.
+# On the host, NPM runs from ~/npm/docker-compose.yml and owns the
+# `nginx-proxy-network` bridge (literal name). Start NPM first, then this stack.
+# In NPM, add a Proxy Host forwarding to `n8n-plane:5678` (container name =
+# DNS name on the shared network).
+services:
+  n8n-plane:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n-plane
+    restart: always
+    # No host ports: n8n is reachable only via NPM through the shared network.
+    # For local debugging, uncomment (localhost-bound; 5679 avoids clashes):
+    # ports:
+    #   - "127.0.0.1:5679:5678"
+    environment:
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https          # NPM terminates TLS; public URL is https
+      - NODE_ENV=production
+      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}/
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - TZ=${GENERIC_TIMEZONE}
+      - N8N_RESTRICT_FILE_ACCESS_TO=/files
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./local-files:/files
+    networks:
+      - nginx-proxy-network
+    # The host runs Tailscale, which overwrites /etc/resolv.conf to point at
+    # MagicDNS (100.100.100.100). Docker bridges that upstream to containers,
+    # but the Tailscale IP isn't reliably reachable from a bridge network, so
+    # external DNS resolution fails. Pin public resolvers — same as the NPM
+    # service in ~/npm/docker-compose.yml does.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+networks:
+  nginx-proxy-network:
+    external: true
+    name: nginx-proxy-network
+
+volumes:
+  n8n_data:

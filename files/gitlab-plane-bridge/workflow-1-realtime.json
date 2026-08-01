@@ -2,27 +2,37 @@
   "name": "GitLab-Plane Bridge (Realtime)",
   "nodes": [
     {
-      "parameters": 1,
-      "type": "n8n-nodes-base.gitlabTrigger",
-      "typeVersion": {
-        "events": [
-          "push",
-          "merge_requests"
-        ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gitlab-plane-bridge",
+        "responseMode": "onReceived",
         "options": {}
       },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
       "position": [
         0,
         0
       ],
-      "id": "255631d4-8635-47e9-a6d3-4c4119ae803f",
-      "name": "GitLab Trigger",
-      "webhookId": "e7ef56ed-689d-488f-99e0-cb9c60a6b1a2"
+      "id": "f9a9faa8-7e84-45e5-90c5-683215ada8c5",
+      "name": "GitLab Webhook",
+      "webhookId": "ba2db52c-5770-4e8b-ad74-25a40026fb65"
     },
     {
-      "parameters": 3.2,
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": {
+      "parameters": {
+        "jsCode": "\nconst WEBHOOK_SECRET = $env.WEBHOOK_SECRET || '';\n// Use $input.first() \u2014 works in both Code node modes (Run Once for All Items / Each Item)\nconst item = $input.first().json;\nconst headers = item.headers || {};\nconst body = item.body || item;\n\n// Case-insensitive header lookup \u2014 Node.js lowercases all header names\nconst token = Object.entries(headers).find(\n  ([k]) => k.toLowerCase() === 'x-gitlab-token'\n)?.[1] || '';\n\nif (!WEBHOOK_SECRET) {\n  throw new Error('WEBHOOK_SECRET env var is empty or not set. Check .env + restart n8n.');\n}\nif (!token) {\n  throw new Error('No X-Gitlab-Token header found. Headers seen: ' + Object.keys(headers).join(', '));\n}\nif (token !== WEBHOOK_SECRET) {\n  throw new Error('Token mismatch. Expected: ' + WEBHOOK_SECRET.substring(0,3) + '... Got: ' + token.substring(0,3) + '...');\n}\n\nreturn [{json: body}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "6cf7de18-b3ae-4923-8e7f-ef514bbee624",
+      "name": "Verify Secret"
+    },
+    {
+      "parameters": {
         "rules": {
           "values": [
             {
@@ -73,30 +83,30 @@
         },
         "options": {}
       },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
       "position": [
-        240,
+        480,
         0
       ],
-      "id": "a0dc494c-9e95-4112-88a9-eab1a2c377b8",
+      "id": "fff7232b-2ac6-49d1-b8b7-996106a2b7eb",
       "name": "Route Event"
     },
     {
-      "parameters": 2,
-      "type": "n8n-nodes-base.code",
-      "typeVersion": {
-        "jsCode": "\nconst PROJECTS = {\n  DEV: {\n    uuid: 'b5842796-7af7-474c-bf17-012977399c16',\n    states: {\n      backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n      todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n      inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n      inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n      done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n      cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n    },\n  },\n};\nconst WORKSPACE_SLUG = 'REPLACE_WORKSPACE_SLUG';\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  // Returns array of {issueKey, action} where action in: close, reopen, mention\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\nfunction htmlEscape(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\n// Normalize Push Hook: loop commits[], extract DEV-NN references\nconst payload = $json;\nconst commits = payload.commits || [];\nconst branch = (payload.ref || '').replace('refs/heads/', '');\nconst projectId = payload.project_id || (payload.project && payload.project.id);\nconst items = [];\n\nfor (const commit of commits) {\n  const msg = commit.message || '';\n  const refs = classifyMessage(msg);\n  for (const r of refs) {\n    // A \"close\" on a push with no MR context becomes \"mention\" (In Progress only, not In Review)\n    // unless the commit is on the default branch (merged) -> handled by reducer via branch check\n    const action = r.action; // close, reopen, mention\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: action,\n        commitSha: commit.id,\n        commitUrl: commit.url || '',\n        commitMessage: msg,\n        commitTitle: commit.title || msg.split('\\n')[0],\n        author: (commit.author && commit.author.name) || '',\n        branch: branch,\n        isDefaultBranch: branch === (payload.project && payload.project.default_branch),\n        projectId: projectId,\n        source: 'push',\n      },\n    });\n  }\n}\nreturn items;\n"
+      "parameters": {
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// Normalize Push Hook: loop commits[], extract issue references\nconst payload = $input.first().json;\nconst commits = payload.commits || [];\nconst branch = (payload.ref || '').replace('refs/heads/', '');\nconst gitlabProjectId = String((payload.project && payload.project.id) || '');\nconst items = [];\n\nfor (const commit of commits) {\n  const msg = commit.message || '';\n  const refs = classifyMessage(msg);\n  for (const r of refs) {\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: r.action,\n        commitSha: commit.id,\n        commitUrl: commit.url || '',\n        commitMessage: msg,\n        commitTitle: commit.title || msg.split('\\n')[0],\n        author: (commit.author && commit.author.name) || '',\n        branch: branch,\n        isDefaultBranch: branch === (payload.project && payload.project.default_branch),\n        gitlabProjectId: gitlabProjectId,\n        source: 'push',\n        planeProjectUuid: PLANE_PROJECT.uuid,\n      },\n    });\n  }\n}\nreturn items;\n"
       },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
-        480,
+        720,
         -200
       ],
-      "id": "efb3653c-6c52-44d4-a9f5-1f217cad8675",
+      "id": "da655d4e-38b6-4ae2-930d-639a8695598c",
       "name": "Normalize Push"
     },
     {
-      "parameters": 2.2,
-      "type": "n8n-nodes-base.if",
-      "typeVersion": {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -125,17 +135,17 @@
         },
         "options": {}
       },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
-        480,
+        720,
         200
       ],
-      "id": "86b28a9e-3785-4cad-ab32-e2ea52115de0",
+      "id": "fb3b8be1-e306-4360-b9f3-303f2b019825",
       "name": "MR Action?"
     },
     {
-      "parameters": 4.2,
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": {
+      "parameters": {
         "method": "GET",
         "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.object_attributes.iid }}/commits",
         "authentication": "predefinedCredentialType",
@@ -144,11 +154,13 @@
         "sendHeaders": false,
         "options": {}
       },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        720,
+        960,
         100
       ],
-      "id": "fa0cb4b0-e388-464a-bf89-60cc5b188747",
+      "id": "283c9f65-aa73-49a3-97cd-96eb71fde318",
       "name": "Get MR Commits",
       "credentials": {
         "httpHeaderAuth": {
@@ -158,59 +170,59 @@
       }
     },
     {
-      "parameters": 2,
-      "type": "n8n-nodes-base.code",
-      "typeVersion": {
-        "jsCode": "\nconst PROJECTS = {\n  DEV: {\n    uuid: 'b5842796-7af7-474c-bf17-012977399c16',\n    states: {\n      backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n      todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n      inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n      inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n      done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n      cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n    },\n  },\n};\nconst WORKSPACE_SLUG = 'REPLACE_WORKSPACE_SLUG';\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  // Returns array of {issueKey, action} where action in: close, reopen, mention\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\nfunction htmlEscape(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\n// Normalize Merge Request Hook\nconst payload = $json;\nconst attrs = payload.object_attributes || {};\nconst action = attrs.action;\nconst mrIid = attrs.iid;\nconst mrUrl = attrs.url || '';\nconst mrTitle = attrs.title || '';\nconst sourceBranch = attrs.source_branch || '';\nconst targetBranch = attrs.target_branch || '';\nconst description = attrs.description || '';\nconst items = [];\n\nif (action === 'open' || action === 'update') {\n  // Parse description for closes + mentions\n  const refs = classifyMessage(description);\n  for (const r of refs) {\n    // close in an open MR -> In Review; mention -> mr-open\n    const act = r.action === 'close' ? 'close-in-mr' : 'mr-open';\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: act,\n        mrIid: mrIid,\n        mrUrl: mrUrl,\n        mrTitle: mrTitle,\n        sourceBranch: sourceBranch,\n        targetBranch: targetBranch,\n        source: 'mr',\n      },\n    });\n  }\n  // Also scan fetched commits if present (passed via $items or $json.commits)\n  // The Get MR Commits node output is in $json.commits when wired in\n} else if (action === 'merge') {\n  // Merged -> Done for closing keywords; mention stays mention\n  const refs = classifyMessage(description);\n  // also check last_commit\n  const lastCommitMsg = (attrs.last_commit && attrs.last_commit.message) || '';\n  const lastRefs = classifyMessage(lastCommitMsg);\n  const allRefs = refs.concat(lastRefs);\n  const seen = new Set();\n  for (const r of allRefs) {\n    if (seen.has(r.issueKey + r.action)) continue;\n    seen.add(r.issueKey + r.action);\n    const act = r.action === 'close' ? 'merged' : (r.action === 'reopen' ? 'reopen' : 'mention');\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: act,\n        mrIid: mrIid,\n        mrUrl: mrUrl,\n        mrTitle: mrTitle,\n        mergeCommitSha: attrs.merge_commit_sha || '',\n        source: 'mr',\n      },\n    });\n  }\n} else if (action === 'close') {\n  // Closed without merge -> guarded downgrade to Todo\n  const refs = classifyMessage(description);\n  for (const r of refs) {\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: 'mr-closed',\n        mrIid: mrIid,\n        mrUrl: mrUrl,\n        mrTitle: mrTitle,\n        source: 'mr',\n      },\n    });\n  }\n}\nreturn items;\n\n// Commits from Get MR Commits are in $json (array)\nconst fetchedCommits = Array.isArray($json) ? $json : ($json.json ? [$json] : []);\n// Re-classify using description from the original MR payload via $('Route Event')\n"
+      "parameters": {
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// Normalize MR (with commits) \u2014 open/update path only\n// Input: Get MR Commits HTTP response (top-level JSON array of commit objects)\n// MR metadata: from original webhook payload via $('MR Action?')\nconst mrPayload = $('MR Action?').first().json;\nconst attrs = mrPayload.object_attributes || {};\nconst action = attrs.action;\nconst mrIid = attrs.iid;\nconst mrUrl = attrs.url || '';\nconst mrTitle = attrs.title || '';\nconst sourceBranch = attrs.source_branch || '';\nconst targetBranch = attrs.target_branch || '';\nconst description = attrs.description || '';\nconst items = [];\n\nif (action === 'open' || action === 'update') {\n  // Classify MR description (e.g. \"closes DEV-15\" in the description body)\n  const descRefs = classifyMessage(description);\n  // Classify each fetched commit's message\n  // HTTP Request v4.2 does not auto-split top-level JSON arrays \u2014 the response\n  // arrives as one item whose .json is the array. Handle both shapes defensively.\n  const inputAll = $input.all();\n  const commitsRaw = (inputAll.length === 1 && Array.isArray(inputAll[0].json))\n    ? inputAll[0].json\n    : inputAll.map(i => i.json);\n  const commitRefs = [];\n  for (const c of commitsRaw) {\n    const msg = c.message || c.title || '';\n    const refs = classifyMessage(msg);\n    for (const r of refs) commitRefs.push(r);\n  }\n  // Merge and dedup by issueKey+action\n  const allRefs = descRefs.concat(commitRefs);\n  const seen = new Set();\n  for (const r of allRefs) {\n    if (seen.has(r.issueKey + r.action)) continue;\n    seen.add(r.issueKey + r.action);\n    const act = r.action === 'close' ? 'close-in-mr' : (r.action === 'reopen' ? 'reopen' : 'mr-open');\n    items.push({\n      json: {\n        issueKey: r.issueKey, action: act, mrIid: mrIid, mrUrl: mrUrl,\n        mrTitle: mrTitle, sourceBranch: sourceBranch, targetBranch: targetBranch,\n        mrDescription: description, gitlabProjectId: String((mrPayload.project && mrPayload.project.id) || ''),\n        source: 'mr', planeProjectUuid: PLANE_PROJECT.uuid,\n      },\n    });\n  }\n}\nreturn items;\n"
       },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
-        960,
+        1200,
         100
       ],
-      "id": "b54355de-7d60-4169-9967-7382781a34ea",
+      "id": "a8146573-0075-40f7-956b-e4ec19d8a0fa",
       "name": "Normalize MR (with commits)"
     },
     {
-      "parameters": 2,
-      "type": "n8n-nodes-base.code",
-      "typeVersion": {
-        "jsCode": "\nconst PROJECTS = {\n  DEV: {\n    uuid: 'b5842796-7af7-474c-bf17-012977399c16',\n    states: {\n      backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n      todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n      inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n      inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n      done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n      cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n    },\n  },\n};\nconst WORKSPACE_SLUG = 'REPLACE_WORKSPACE_SLUG';\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  // Returns array of {issueKey, action} where action in: close, reopen, mention\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\nfunction htmlEscape(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\n// Normalize Merge Request Hook\nconst payload = $json;\nconst attrs = payload.object_attributes || {};\nconst action = attrs.action;\nconst mrIid = attrs.iid;\nconst mrUrl = attrs.url || '';\nconst mrTitle = attrs.title || '';\nconst sourceBranch = attrs.source_branch || '';\nconst targetBranch = attrs.target_branch || '';\nconst description = attrs.description || '';\nconst items = [];\n\nif (action === 'open' || action === 'update') {\n  // Parse description for closes + mentions\n  const refs = classifyMessage(description);\n  for (const r of refs) {\n    // close in an open MR -> In Review; mention -> mr-open\n    const act = r.action === 'close' ? 'close-in-mr' : 'mr-open';\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: act,\n        mrIid: mrIid,\n        mrUrl: mrUrl,\n        mrTitle: mrTitle,\n        sourceBranch: sourceBranch,\n        targetBranch: targetBranch,\n        source: 'mr',\n      },\n    });\n  }\n  // Also scan fetched commits if present (passed via $items or $json.commits)\n  // The Get MR Commits node output is in $json.commits when wired in\n} else if (action === 'merge') {\n  // Merged -> Done for closing keywords; mention stays mention\n  const refs = classifyMessage(description);\n  // also check last_commit\n  const lastCommitMsg = (attrs.last_commit && attrs.last_commit.message) || '';\n  const lastRefs = classifyMessage(lastCommitMsg);\n  const allRefs = refs.concat(lastRefs);\n  const seen = new Set();\n  for (const r of allRefs) {\n    if (seen.has(r.issueKey + r.action)) continue;\n    seen.add(r.issueKey + r.action);\n    const act = r.action === 'close' ? 'merged' : (r.action === 'reopen' ? 'reopen' : 'mention');\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: act,\n        mrIid: mrIid,\n        mrUrl: mrUrl,\n        mrTitle: mrTitle,\n        mergeCommitSha: attrs.merge_commit_sha || '',\n        source: 'mr',\n      },\n    });\n  }\n} else if (action === 'close') {\n  // Closed without merge -> guarded downgrade to Todo\n  const refs = classifyMessage(description);\n  for (const r of refs) {\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: 'mr-closed',\n        mrIid: mrIid,\n        mrUrl: mrUrl,\n        mrTitle: mrTitle,\n        source: 'mr',\n      },\n    });\n  }\n}\nreturn items;\n"
+      "parameters": {
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// Normalize Merge Request Hook \u2014 merge/close path (direct from webhook payload)\n// Note: open/update actions are routed to Normalize MR (with commits) by the\n// MR Action? IF, so this node only handles merge and close.\nconst payload = $input.first().json;\nconst attrs = payload.object_attributes || {};\nconst action = attrs.action;\nconst mrIid = attrs.iid;\nconst mrUrl = attrs.url || '';\nconst mrTitle = attrs.title || '';\nconst sourceBranch = attrs.source_branch || '';\nconst targetBranch = attrs.target_branch || '';\nconst description = attrs.description || '';\nconst gitlabProjectId = String((payload.project && payload.project.id) || attrs.target_project_id || '');\nconst items = [];\n\nif (action === 'merge') {\n  const refs = classifyMessage(description);\n  const lastCommitMsg = (attrs.last_commit && attrs.last_commit.message) || '';\n  const lastRefs = classifyMessage(lastCommitMsg);\n  const allRefs = refs.concat(lastRefs);\n  const seen = new Set();\n  for (const r of allRefs) {\n    if (seen.has(r.issueKey + r.action)) continue;\n    seen.add(r.issueKey + r.action);\n    const act = r.action === 'close' ? 'merged' : (r.action === 'reopen' ? 'reopen' : 'mention');\n    items.push({\n      json: {\n        issueKey: r.issueKey, action: act, mrIid: mrIid, mrUrl: mrUrl,\n        mrTitle: mrTitle, mergeCommitSha: attrs.merge_commit_sha || '',\n        mrDescription: description, gitlabProjectId: gitlabProjectId,\n        source: 'mr', planeProjectUuid: PLANE_PROJECT.uuid,\n      },\n    });\n  }\n} else if (action === 'close') {\n  const refs = classifyMessage(description);\n  for (const r of refs) {\n    items.push({\n      json: {\n        issueKey: r.issueKey, action: 'mr-closed', mrIid: mrIid, mrUrl: mrUrl,\n        mrTitle: mrTitle, mrDescription: description, gitlabProjectId: gitlabProjectId,\n        source: 'mr', planeProjectUuid: PLANE_PROJECT.uuid,\n      },\n    });\n  }\n}\nreturn items;\n"
       },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
-        720,
+        960,
         340
       ],
-      "id": "6e281beb-9d74-40b6-a5de-b4fc54a93a43",
+      "id": "0baf48a9-5e2b-4bc2-8114-67a079e5befe",
       "name": "Normalize MR (direct)"
     },
     {
-      "parameters": 2,
+      "parameters": {
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// REDUCER: group raw actions by issue, apply precedence + guards\nconst allItems = $input.all ? $input.all().map(i => i.json) : items.map(i => i.json);\nif (!allItems.length) return [];\nconst isBackstop = allItems[0].isBackstop || false;\n\nconst groups = {};\nfor (const item of allItems) {\n  const key = item.issueKey;\n  if (!groups[key]) groups[key] = [];\n  groups[key].push(item);\n}\n\nconst projStates = PLANE_PROJECT.states;\nconst results = [];\nfor (const issueKey of Object.keys(groups)) {\n  const actions = groups[issueKey];\n\n  const hasReopen = actions.some(a => a.action === 'reopen');\n  const hasMerged = actions.some(a => a.action === 'merged');\n  const hasCloseInMr = actions.some(a => a.action === 'close-in-mr');\n  const hasMrOpen = actions.some(a => a.action === 'mr-open');\n  const hasMention = actions.some(a => a.action === 'mention');\n  const hasClose = actions.some(a => a.action === 'close');\n  const hasMrClosed = actions.some(a => a.action === 'mr-closed');\n\n  // close on default branch = already merged \u2192 Done; close on feature branch \u2192 In Review\n  const hasCloseOnDefault = actions.some(a => a.action === 'close' && a.isDefaultBranch);\n  const hasCloseOnFeature = actions.some(a => a.action === 'close' && !a.isDefaultBranch);\n\n  let desiredState = null;\n  let actionLabel = '';\n  let commentParts = [];\n\n  if (hasReopen) {\n    desiredState = projStates.inProgress; actionLabel = 'reopen';\n  } else if (hasMerged || hasCloseOnDefault) {\n    desiredState = projStates.done; actionLabel = hasMerged ? 'merged' : 'close';\n  } else if (hasCloseInMr || hasCloseOnFeature) {\n    desiredState = projStates.inReview; actionLabel = 'close';\n  } else if (hasMrOpen) {\n    desiredState = projStates.inProgress; actionLabel = 'mr-open';\n  } else if (hasMention) {\n    desiredState = projStates.inProgress; actionLabel = 'mention';\n  } else if (hasMrClosed) {\n    desiredState = projStates.todo; actionLabel = 'mr-closed';\n  }\n  if (!desiredState) continue;\n\n  for (const a of actions) {\n    if (a.source === 'push' && a.commitUrl) {\n      const shaShort = (a.commitSha || '').substring(0, 7);\n      commentParts.push(`mentioned in commit <a href=\"${a.commitUrl}\">${shaShort}</a> by ${a.author || 'unknown'}: <i>${a.commitTitle || ''}</i>`);\n    } else if (a.source === 'mr' && a.mrUrl) {\n      commentParts.push(`MR <a href=\"${a.mrUrl}\">!${a.mrIid || ''}: ${a.mrTitle || ''}</a>`);\n    }\n  }\n\n  let externalId;\n  if (actionLabel === 'merged' || actionLabel === 'close-in-mr' || actionLabel === 'mr-open' || actionLabel === 'mr-closed') {\n    const a = actions.find(x => x.source === 'mr');\n    externalId = `gitlab-mr-${a && a.mrIid}-${actionLabel}-${issueKey}`;\n  } else {\n    const a = actions.find(x => x.source === 'push' && x.commitSha);\n    externalId = `gitlab-commit-${(a && a.commitSha) || 'unknown'}-${issueKey}`;\n  }\n\n  let shouldChangeState = true;\n  let guardReason = '';\n  if (isBackstop && (actionLabel === 'mr-closed')) {\n    shouldChangeState = false;\n    guardReason = 'backstop: mr-closed downgrade not allowed in backstop mode';\n  }\n\n  const sentinel = `<!-- n8n-bridge: src=${actions[0].source}, action=${actionLabel}, issue=${issueKey} -->`;\n\n  results.push({\n    json: {\n      issueKey: issueKey,\n      desiredStateName: actionLabel,\n      targetStateUuid: desiredState,\n      shouldChangeState: shouldChangeState,\n      guardReason: guardReason,\n      commentHtml: sentinel + '\\n' + commentParts.join('<br>\\n'),\n      externalId: externalId,\n      externalSource: 'gitlab',\n      mrUrl: actions.find(x => x.mrUrl) ? actions.find(x => x.mrUrl).mrUrl : '',\n      mrTitle: actions.find(x => x.mrTitle) ? actions.find(x => x.mrTitle).mrTitle : '',\n      gitlabProjectId: actions.find(x => x.gitlabProjectId) ? actions.find(x => x.gitlabProjectId).gitlabProjectId : '',\n      commitShas: actions.filter(x => x.source === 'push' && x.commitSha).map(x => x.commitSha),\n      mrIid: actions.find(x => x.mrIid) ? actions.find(x => x.mrIid).mrIid : '',\n      mrDescription: actions.find(x => x.mrDescription) ? actions.find(x => x.mrDescription).mrDescription : '',\n      isBackstop: isBackstop,\n      planeProjectUuid: PLANE_PROJECT.uuid,\n    },\n  });\n}\nreturn results;\n"
+      },
       "type": "n8n-nodes-base.code",
-      "typeVersion": {
-        "jsCode": "\nconst PROJECTS = {\n  DEV: {\n    uuid: 'b5842796-7af7-474c-bf17-012977399c16',\n    states: {\n      backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n      todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n      inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n      inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n      done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n      cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n    },\n  },\n};\nconst WORKSPACE_SLUG = 'REPLACE_WORKSPACE_SLUG';\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  // Returns array of {issueKey, action} where action in: close, reopen, mention\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\nfunction htmlEscape(s) {\n  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');\n}\n\n// REDUCER: group raw actions by issue, apply precedence + guards, emit final decision\n// Reads items from input. isBackstop flag restricts downgrades.\nconst isBackstop = false;\n\n// Collect all input items (n8n passes them in $items or via $input.all())\nconst allItems = $input.all ? $input.all().map(i => i.json) : items.map(i => i.json);\nif (!allItems.length) return [];\n\n// Group by issueKey\nconst groups = {};\nfor (const item of allItems) {\n  const key = item.issueKey;\n  if (!groups[key]) groups[key] = [];\n  groups[key].push(item);\n}\n\nconst results = [];\nfor (const issueKey of Object.keys(groups)) {\n  const actions = groups[issueKey];\n  const prefix = issueKey.split('-')[0];\n  const proj = PROJECTS[prefix];\n  if (!proj) continue; // unknown project prefix, skip\n\n  // Determine the strongest action via precedence ladder\n  // Precedence (highest): reopen > merged > close-in-mr > mr-open > mention > mr-closed\n  const hasReopen = actions.some(a => a.action === 'reopen');\n  const hasMerged = actions.some(a => a.action === 'merged');\n  const hasCloseInMr = actions.some(a => a.action === 'close-in-mr');\n  const hasMrOpen = actions.some(a => a.action === 'mr-open');\n  const hasMention = actions.some(a => a.action === 'mention' || a.action === 'close');\n  const hasMrClosed = actions.some(a => a.action === 'mr-closed');\n\n  let desiredState = null;\n  let actionLabel = '';\n  let commentParts = [];\n\n  if (hasReopen) {\n    desiredState = proj.states.inProgress; actionLabel = 'reopen';\n  } else if (hasMerged) {\n    desiredState = proj.states.done; actionLabel = 'merged';\n  } else if (hasCloseInMr) {\n    desiredState = proj.states.inReview; actionLabel = 'close-in-mr';\n  } else if (hasMrOpen) {\n    desiredState = proj.states.inProgress; actionLabel = 'mr-open';\n  } else if (hasMention) {\n    desiredState = proj.states.inProgress; actionLabel = 'mention';\n  } else if (hasMrClosed) {\n    desiredState = proj.states.todo; actionLabel = 'mr-closed';\n  }\n\n  if (!desiredState) continue;\n\n  // Build comment parts from actions\n  for (const a of actions) {\n    if (a.source === 'push' && a.commitUrl) {\n      const shaShort = (a.commitSha || '').substring(0, 7);\n      commentParts.push(`mentioned in commit <a href=\"${a.commitUrl}\"><code>${shaShort}</code></a> by ${a.author || 'unknown'}: <i>${a.commitTitle || ''}</i>`);\n    } else if (a.source === 'mr' && a.mrUrl) {\n      commentParts.push(`MR <a href=\"${a.mrUrl}\">!${a.mrIid || ''}: ${a.mrTitle || ''}</a>`);\n    }\n  }\n\n  // External ID for comment dedup (Plane returns 409 on duplicate external_id)\n  let externalId;\n  if (actionLabel === 'merged' || actionLabel === 'close-in-mr' || actionLabel === 'mr-open' || actionLabel === 'mr-closed') {\n    const a = actions.find(x => x.source === 'mr');\n    externalId = `gitlab-mr-${a && a.mrIid}-${actionLabel}-${issueKey}`;\n  } else {\n    const a = actions.find(x => x.source === 'push' && x.commitSha);\n    externalId = `gitlab-commit-${(a && a.commitSha) || 'unknown'}-${issueKey}`;\n  }\n\n  // GUARDS\n  let shouldChangeState = true;\n  let guardReason = '';\n\n  // In backstop mode, restrict downgrades (Council direction #8)\n  if (isBackstop && (actionLabel === 'mr-closed')) {\n    shouldChangeState = false;\n    guardReason = 'backstop: mr-closed downgrade not allowed in backstop mode';\n  }\n\n  // mr-closed -> Todo is a downgrade; only allowed in webhook mode\n  // (handled above for backstop)\n\n  // We cannot know the CURRENT state here (that comes after Get Work Item).\n  // The guards that depend on current state (Done protection, Cancelled protection,\n  // In Review protection) are applied in a LATER Code node after Get Work Item.\n  // For now, emit the desired state + a flag; the post-fetch node re-evaluates.\n\n  const sentinel = `<!-- n8n-bridge: src=${actions[0].source}, action=${actionLabel}, issue=${issueKey} -->`;\n\n  results.push({\n    json: {\n      issueKey: issueKey,\n      desiredStateName: actionLabel,\n      targetStateUuid: desiredState,\n      shouldChangeState: shouldChangeState,\n      guardReason: guardReason,\n      commentHtml: sentinel + '\\n' + commentParts.join('<br>\\n'),\n      externalId: externalId,\n      externalSource: 'gitlab',\n      mrUrl: actions.find(x => x.mrUrl) ? actions.find(x => x.mrUrl).mrUrl : '',\n      mrTitle: actions.find(x => x.mrTitle) ? actions.find(x => x.mrTitle).mrTitle : '',\n      isBackstop: isBackstop,\n      prefix: prefix,\n    },\n  });\n}\nreturn results;\n"
-      },
-      "position": [
-        1200,
-        0
-      ],
-      "id": "8a839b9b-707d-461b-825a-ff063e010a36",
-      "name": "Reducer"
-    },
-    {
-      "parameters": 4.2,
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": {
-        "method": "GET",
-        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/work-items/{{ $json.issueKey }}/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "options": {}
-      },
+      "typeVersion": 2,
       "position": [
         1440,
         0
       ],
-      "id": "5b22c0e2-59de-4713-9445-d850eec43f2d",
+      "id": "27b16332-e5b9-4c08-9f12-e55048f0bde3",
+      "name": "Reducer"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/work-items/{{ $json.issueKey }}/",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "2f8b05f5-3749-4cf0-9df3-c60a87373536",
       "name": "Get Work Item",
       "credentials": {
         "httpHeaderAuth": {
@@ -221,36 +233,36 @@
       "continueOnFail": true
     },
     {
-      "parameters": 2,
-      "type": "n8n-nodes-base.code",
-      "typeVersion": {
-        "jsCode": "\n// Post-fetch guard: re-evaluate shouldChangeState using current Plane state\nconst wi = $json; // work item from Get Work Item\nconst prevState = $json.state; // UUID of current state\n\n// Pass-through fields from the previous node (stored in $items[0] before this node)\n// n8n: we use $('Reducer').item or the incoming item. For simplicity the Get Work Item\n// node passes through our reducer fields via expressions. Here we read them from $json\n// which n8n merges. In practice the HTTP Request node replaces $json with the response,\n// so we use the pairedItem mechanism. For MVP simplicity, we re-read from the previous\n// code node output using $('Reducer').all()[index]. But n8n Code node gives us $input.\n\n// We rely on the workflow wiring: Get Work Item passes through via \"Include Original Items\"\n// is not available on HTTP Request by default. Instead we use expressions in the HTTP node\n// response field. For MVP, this guard node reads from $input which contains the reducer\n// output merged with the HTTP response via the workflow's item pairing.\n\n// The simplest robust approach: this node receives the reducer output (with desiredStateUuid)\n// AND the Get Work Item response (with id, project, state). We merge them.\n// In n8n, when an HTTP Request follows a Code node, $json is the HTTP response.\n// To access the reducer fields we use $('Reducer').all().\n\nconst reducerItems = $('Reducer').all();\nconst idx = $itemIndex || 0;\nconst r = reducerItems[idx] ? reducerItems[idx].json : {};\n\nconst projStates = {\n  backlog: 'e3bde020-6ce7-4b87-b994-2ebb28c14d84',\n  todo: '6af7ed32-6610-44e3-be3f-f405b16d2d35',\n  inProgress: '16099284-4b49-4ed3-af2a-d99e21d0e154',\n  inReview: 'a24250ec-212a-49ee-ad59-6d31e8b181ae',\n  done: '56c26d40-418d-4d71-8f49-ecf0ba0837ad',\n  cancelled: 'c69e0a4f-6fa8-4aa6-85c8-26a8162db905',\n};\nconst stateNameByUuid = {};\nfor (const k of Object.keys(projStates)) stateNameByUuid[projStates[k]] = k;\n\nconst currentStateName = stateNameByUuid[wi.state] || 'unknown';\nconst targetStateName = stateNameByUuid[r.targetStateUuid] || 'unknown';\nconst actionLabel = r.desiredStateName || '';\n\nlet shouldChangeState = r.shouldChangeState;\nlet guardReason = r.guardReason || '';\n\n// GUARD 1: Never touch Cancelled\nif (currentStateName === 'cancelled') {\n  shouldChangeState = false;\n  guardReason = 'protected: Cancelled is human-owned';\n}\n// GUARD 2: Never downgrade Done except on explicit reopen\nelse if (currentStateName === 'done' && actionLabel !== 'reopen') {\n  shouldChangeState = false;\n  guardReason = 'protected: Done cannot be downgraded except by reopen';\n}\n// GUARD 3: Never downgrade In Review to In Progress from a bare mention\nelse if (currentStateName === 'inReview' && (actionLabel === 'mention' || actionLabel === 'mr-open')) {\n  shouldChangeState = false;\n  guardReason = 'protected: In Review not downgraded by bare mention';\n}\n// GUARD 4: Already in the target state -> no-op\nelse if (wi.state === r.targetStateUuid) {\n  shouldChangeState = false;\n  guardReason = 'already in target state';\n}\n// GUARD 5: mr-closed downgrade only from In Progress/In Review (not from Backlog/Todo/Done)\nelse if (actionLabel === 'mr-closed' && currentStateName !== 'inProgress' && currentStateName !== 'inReview') {\n  shouldChangeState = false;\n  guardReason = 'mr-closed: can only downgrade from In Progress/In Review';\n}\n\nreturn [{\n  json: {\n    issueKey: r.issueKey,\n    workItemId: wi.id,\n    project: wi.project,\n    currentState: wi.state,\n    currentStateName: currentStateName,\n    targetStateUuid: r.targetStateUuid,\n    targetStateName: targetStateName,\n    shouldChangeState: shouldChangeState,\n    guardReason: guardReason,\n    commentHtml: r.commentHtml,\n    externalId: r.externalId,\n    externalSource: r.externalSource,\n    mrUrl: r.mrUrl || '',\n    mrTitle: r.mrTitle || '',\n  },\n}];\n"
+      "parameters": {
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z0-9]+-\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z0-9]+-\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// Post-fetch guard: re-evaluate shouldChangeState using current Plane state\nconst wi = $input.first().json;\nconst reducerItems = $('Reducer').all();\nconst idx = $itemIndex || 0;\nconst r = reducerItems[idx] ? reducerItems[idx].json : {};\n\nconst projStates = PLANE_PROJECT.states;\nconst stateNameByUuid = {};\nfor (const k of Object.keys(projStates)) stateNameByUuid[projStates[k]] = k;\n\nconst currentStateName = stateNameByUuid[wi.state] || 'unknown';\nconst targetStateName = stateNameByUuid[r.targetStateUuid] || 'unknown';\nconst actionLabel = r.desiredStateName || '';\n\nlet shouldChangeState = r.shouldChangeState;\nlet guardReason = r.guardReason || '';\n\nif (currentStateName === 'cancelled') {\n  shouldChangeState = false; guardReason = 'protected: Cancelled is human-owned';\n} else if (currentStateName === 'done' && actionLabel !== 'reopen') {\n  shouldChangeState = false; guardReason = 'protected: Done cannot be downgraded except by reopen';\n} else if (currentStateName === 'inReview' && (actionLabel === 'mention' || actionLabel === 'mr-open')) {\n  shouldChangeState = false; guardReason = 'protected: In Review not downgraded by bare mention';\n} else if (wi.state === r.targetStateUuid) {\n  shouldChangeState = false; guardReason = 'already in target state';\n} else if (actionLabel === 'mr-closed' && currentStateName !== 'inProgress' && currentStateName !== 'inReview') {\n  shouldChangeState = false; guardReason = 'mr-closed: can only downgrade from In Progress/In Review';\n}\n\nreturn [{\n  json: {\n    issueKey: r.issueKey,\n    workItemId: wi.id,\n    project: wi.project,\n    currentState: wi.state,\n    currentStateName: currentStateName,\n    targetStateUuid: r.targetStateUuid,\n    targetStateName: targetStateName,\n    shouldChangeState: shouldChangeState,\n    guardReason: guardReason,\n    commentHtml: r.commentHtml,\n    externalId: r.externalId,\n    externalSource: r.externalSource,\n    mrUrl: r.mrUrl || '',\n    mrTitle: r.mrTitle || '',\n    gitlabProjectId: r.gitlabProjectId || '',\n    commitShas: r.commitShas || [],\n    mrIid: r.mrIid || '',\n    mrDescription: r.mrDescription || '',\n    workItemUrl: `https://plane.nforensic.site/${WORKSPACE_SLUG}/projects/${wi.project}/work-items/${wi.id}`,\n  },\n}];\n"
       },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
-        1680,
+        1920,
         0
       ],
-      "id": "e8c92f94-48a4-4adb-967b-218857f803ed",
+      "id": "8180f618-a02d-4f8e-88f9-10f68ba195c4",
       "name": "Apply Guards"
     },
     {
-      "parameters": 4.2,
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": {
+      "parameters": {
         "method": "POST",
-        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/comments/",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/comments/",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { comment_html: $json.commentHtml, access: 'internal', external_id: $json.externalId, external_source: 'gitlab' } }}",
+        "jsonBody": "={{ { comment_html: $json.commentHtml, access: 'INTERNAL', external_id: $json.externalId, external_source: 'gitlab' } }}",
         "options": {}
       },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        1920,
+        2160,
         -100
       ],
-      "id": "b10c1db4-a6dd-4ec6-83aa-e39350a85e57",
+      "id": "1fdf95d3-3d6e-4e71-ac08-445e87630b86",
       "name": "Create Comment",
       "credentials": {
         "httpHeaderAuth": {
@@ -261,9 +273,7 @@
       "continueOnFail": true
     },
     {
-      "parameters": 2.2,
-      "type": "n8n-nodes-base.if",
-      "typeVersion": {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
@@ -284,19 +294,19 @@
         },
         "options": {}
       },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
-        1920,
+        2160,
         100
       ],
-      "id": "30d48e53-118f-44b8-8e40-d1d510e663b1",
+      "id": "f40b8ea8-5573-4174-9e0b-385dc236006f",
       "name": "Should Change State?"
     },
     {
-      "parameters": 4.2,
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": {
+      "parameters": {
         "method": "PATCH",
-        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
@@ -304,11 +314,13 @@
         "jsonBody": "={{ { state: $json.targetStateUuid } }}",
         "options": {}
       },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        2160,
+        2400,
         100
       ],
-      "id": "565e5ee1-442e-4563-bda0-be077abd3824",
+      "id": "03ded0dc-4eba-4717-b232-d0808b1d0ae8",
       "name": "Update State",
       "credentials": {
         "httpHeaderAuth": {
@@ -319,22 +331,34 @@
       "continueOnFail": true
     },
     {
-      "parameters": 2.2,
-      "type": "n8n-nodes-base.if",
-      "typeVersion": {
+      "parameters": {
+        "jsCode": "\n// Group Apply Guards output by commit SHA / MR IID, build GitLab link-back payloads\nconst allItems = $input.all().map(i => i.json);\nconst commits = {};  // sha -> { gitlabProjectId, issues: [{key, url}] }\nconst mrs = {};      // mrIid -> { gitlabProjectId, description, issues: [{key, url}] }\n\nfor (const item of allItems) {\n  const url = item.workItemUrl || '';\n  const key = item.issueKey || '';\n  // Commits\n  if (item.commitShas && item.commitShas.length > 0) {\n    for (const sha of item.commitShas) {\n      if (!commits[sha]) commits[sha] = { gitlabProjectId: item.gitlabProjectId, issues: [] };\n      if (!commits[sha].issues.find(i => i.key === key)) commits[sha].issues.push({ key, url });\n    }\n  }\n  // MRs\n  if (item.mrIid && item.mrDescription) {\n    if (!mrs[item.mrIid]) mrs[item.mrIid] = { gitlabProjectId: item.gitlabProjectId, description: item.mrDescription, issues: [] };\n    if (!mrs[item.mrIid].issues.find(i => i.key === key)) mrs[item.mrIid].issues.push({ key, url });\n  }\n}\n\nconst results = [];\n// Commit comment payloads\nfor (const sha of Object.keys(commits)) {\n  const c = commits[sha];\n  if (!c.gitlabProjectId) continue;\n  const note = c.issues.map(i => `[${i.key}](${i.url})`).join(' \u00b7 ');\n  results.push({ json: { linkType: 'commit', gitlabProjectId: c.gitlabProjectId, commitSha: sha, note: note } });\n}\n  // MR description edit payloads\nfor (const iid of Object.keys(mrs)) {\n  const mr = mrs[iid];\n  if (!mr.gitlabProjectId) continue;\n  let desc = mr.description;\n  for (const issue of mr.issues) {\n    // Replace DEV-NN with [DEV-NN](url), skip if already inside a markdown link\n    const re = new RegExp('(?<!\\\\[)' + issue.key + '\\\\b(?!\\\\]\\\\()', 'g');\n    desc = desc.replace(re, `[${issue.key}](${issue.url})`);\n  }\n  results.push({ json: { linkType: 'mr', gitlabProjectId: mr.gitlabProjectId, mrIid: iid, newDescription: desc } });\n}\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -100
+      ],
+      "id": "1b6a5adc-ed7f-42e0-97e0-a35cf1f30594",
+      "name": "Prepare GitLab Linkback"
+    },
+    {
+      "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
-              "leftValue": "={{ $json.mrUrl }}",
-              "rightValue": "",
+              "leftValue": "={{ $json.linkType }}",
+              "rightValue": "commit",
               "operator": {
                 "type": "string",
-                "operation": "isNotEmpty"
+                "operation": "equals"
               }
             }
           ],
@@ -342,73 +366,65 @@
         },
         "options": {}
       },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
-        2160,
+        2640,
         -100
       ],
-      "id": "263c34ef-038c-4f65-909b-d663760b21b4",
-      "name": "Has MR Link?"
+      "id": "54a59673-cd75-4dcd-9d51-efbd5bdc151a",
+      "name": "Is Commit?"
     },
     {
-      "parameters": 4.2,
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": {
-        "method": "GET",
-        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/links/",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.gitlabProjectId }}/repository/commits/{{ $json.commitSha }}/comments",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { note: $json.note } }}",
         "options": {}
       },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        2400,
+        2880,
         -200
       ],
-      "id": "6ce1c2ca-e11d-47a9-a0fe-bf70e68a4763",
-      "name": "Get Existing Links",
+      "id": "8d571f35-5869-441f-b6b2-3c300a1b8daf",
+      "name": "Post Commit Comment",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
+          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
+          "name": "GitLab API Token"
         }
       },
       "continueOnFail": true
     },
     {
-      "parameters": 2,
-      "type": "n8n-nodes-base.code",
-      "typeVersion": {
-        "jsCode": "\nconst existing = Array.isArray($json) ? $json : ($json.results || []);\nconst mrUrl = $('Apply Guards').item.json.mrUrl;\nconst isDup = existing.some(l => l.url === mrUrl);\nreturn [{json: {shouldCreateLink: !isDup, mrUrl: mrUrl, workItemId: $('Apply Guards').item.json.workItemId, project: $('Apply Guards').item.json.project, mrTitle: $('Apply Guards').item.json.mrTitle}}];\n"
-      },
-      "position": [
-        2640,
-        -200
-      ],
-      "id": "fdfae30e-a5ad-428f-8be7-a28999804c0e",
-      "name": "Link Not Duplicate?"
-    },
-    {
-      "parameters": 4.2,
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": {
-        "method": "POST",
-        "url": "=https://plane.nforensic.site/api/v1/workspaces/REPLACE_WORKSPACE_SLUG/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/links/",
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.gitlabProjectId }}/merge_requests/{{ $json.mrIid }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { url: $json.mrUrl, title: $json.mrTitle } }}",
+        "jsonBody": "={{ { description: $json.newDescription } }}",
         "options": {}
       },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         2880,
-        -200
+        0
       ],
-      "id": "2269cd64-9075-4084-a0dd-22f462d8a267",
-      "name": "Create Link",
+      "id": "2a94ea65-c57f-4f97-b33e-07118bfa19a2",
+      "name": "Edit MR Description",
       "credentials": {
         "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
+          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
+          "name": "GitLab API Token"
         }
       },
       "continueOnFail": true
@@ -416,7 +432,18 @@
   ],
   "pinData": {},
   "connections": {
-    "GitLab Trigger": {
+    "GitLab Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Secret": {
       "main": [
         [
           {
@@ -541,15 +568,9 @@
             "node": "Should Change State?",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Create Comment": {
-      "main": [
-        [
+          },
           {
-            "node": "Has MR Link?",
+            "node": "Prepare GitLab Linkback",
             "type": "main",
             "index": 0
           }
@@ -558,21 +579,9 @@
     },
     "Should Change State?": {
       "main": [
-        [],
         [
           {
             "node": "Update State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Has MR Link?": {
-      "main": [
-        [
-          {
-            "node": "Get Existing Links",
             "type": "main",
             "index": 0
           }
@@ -580,22 +589,29 @@
         []
       ]
     },
-    "Get Existing Links": {
+    "Prepare GitLab Linkback": {
       "main": [
         [
           {
-            "node": "Link Not Duplicate?",
+            "node": "Is Commit?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Link Not Duplicate?": {
+    "Is Commit?": {
       "main": [
         [
           {
-            "node": "Create Link",
+            "node": "Post Commit Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit MR Description",
             "type": "main",
             "index": 0
           }
@@ -607,7 +623,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "5f0d7eef-53a0-428b-80a5-01e12d7101e1",
+  "versionId": "0e07d17f-c938-455a-a272-58d505bbf2df",
   "meta": {
     "instanceId": "gitlab-plane-bridge"
   },
