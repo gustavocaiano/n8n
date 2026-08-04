@@ -147,7 +147,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.project_id }}/merge_requests/{{ $json.object_attributes.iid }}/commits",
+        "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.project.id }}/merge_requests/{{ $json.object_attributes.iid }}/commits",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "httpHeaderAuth",
         "sendQuery": false,
