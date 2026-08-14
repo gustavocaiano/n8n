@@ -148,11 +148,17 @@
       "parameters": {
         "method": "GET",
         "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.project.id }}/merge_requests/{{ $json.object_attributes.iid }}/commits",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendQuery": false,
-        "sendHeaders": false,
-        "options": {}
+        "sendHeaders": true,
+        "options": {},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "PRIVATE-TOKEN",
+              "value": "={{ $env.GITLAB_API_TOKEN }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -161,13 +167,7 @@
         100
       ],
       "id": "283c9f65-aa73-49a3-97cd-96eb71fde318",
-      "name": "Get MR Commits",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
-          "name": "GitLab API Token"
-        }
-      }
+      "name": "Get MR Commits"
     },
     {
       "parameters": {
@@ -212,9 +212,16 @@
       "parameters": {
         "method": "GET",
         "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/work-items/{{ $json.issueKey }}/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -224,12 +231,6 @@
       ],
       "id": "2f8b05f5-3749-4cf0-9df3-c60a87373536",
       "name": "Get Work Item",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -249,12 +250,19 @@
       "parameters": {
         "method": "POST",
         "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/comments/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { comment_html: $json.commentHtml, access: 'INTERNAL', external_id: $json.externalId, external_source: 'gitlab' } }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -264,12 +272,6 @@
       ],
       "id": "1fdf95d3-3d6e-4e71-ac08-445e87630b86",
       "name": "Create Comment",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -307,12 +309,19 @@
       "parameters": {
         "method": "PATCH",
         "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { state: $json.targetStateUuid } }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -322,12 +331,6 @@
       ],
       "id": "03ded0dc-4eba-4717-b232-d0808b1d0ae8",
       "name": "Update State",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -379,12 +382,19 @@
       "parameters": {
         "method": "POST",
         "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.gitlabProjectId }}/repository/commits/{{ $json.commitSha }}/comments",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { note: $json.note } }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "PRIVATE-TOKEN",
+              "value": "={{ $env.GITLAB_API_TOKEN }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -394,24 +404,25 @@
       ],
       "id": "8d571f35-5869-441f-b6b2-3c300a1b8daf",
       "name": "Post Commit Comment",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
-          "name": "GitLab API Token"
-        }
-      },
       "continueOnFail": true
     },
     {
       "parameters": {
         "method": "PUT",
         "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.gitlabProjectId }}/merge_requests/{{ $json.mrIid }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { description: $json.newDescription } }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "PRIVATE-TOKEN",
+              "value": "={{ $env.GITLAB_API_TOKEN }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -421,12 +432,6 @@
       ],
       "id": "2a94ea65-c57f-4f97-b33e-07118bfa19a2",
       "name": "Edit MR Description",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
-          "name": "GitLab API Token"
-        }
-      },
       "continueOnFail": true
     }
   ],

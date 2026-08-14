@@ -39,8 +39,6 @@
       "parameters": {
         "method": "GET",
         "url": "=https://gitlab.pdmfc.com/api/v4/groups/{{ $json.groupId }}/projects",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -66,7 +64,16 @@
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "PRIVATE-TOKEN",
+              "value": "={{ $env.GITLAB_API_TOKEN }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -76,12 +83,6 @@
       ],
       "id": "ab20b260-6b1f-42e0-95bc-09e897a3d63a",
       "name": "List Group Projects",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
-          "name": "GitLab API Token"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -101,8 +102,6 @@
       "parameters": {
         "method": "GET",
         "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $json.projectId }}/repository/commits",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -116,7 +115,16 @@
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "PRIVATE-TOKEN",
+              "value": "={{ $env.GITLAB_API_TOKEN }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -126,12 +134,6 @@
       ],
       "id": "ca442d34-4db6-4b7e-8811-10f6796effde",
       "name": "List Commits",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_GITLAB_AUTH_ID",
-          "name": "GitLab API Token"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -164,9 +166,16 @@
       "parameters": {
         "method": "GET",
         "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/work-items/{{ $json.issueKey }}/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -176,12 +185,6 @@
       ],
       "id": "51a2d0a4-9a5a-44db-85f4-e8c9fdc5af56",
       "name": "Get Work Item",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -201,12 +204,19 @@
       "parameters": {
         "method": "POST",
         "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/comments/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { comment_html: $json.commentHtml, access: 'INTERNAL', external_id: $json.externalId, external_source: 'gitlab' } }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -216,12 +226,6 @@
       ],
       "id": "330ba0ce-0514-4867-bf85-ba9162edb433",
       "name": "Create Comment",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
-        }
-      },
       "continueOnFail": true
     },
     {
@@ -259,12 +263,19 @@
       "parameters": {
         "method": "PATCH",
         "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $env.WORKSPACE_SLUG }}/projects/{{ $json.project }}/work-items/{{ $json.workItemId }}/",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { state: $json.targetStateUuid } }}",
-        "options": {}
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -274,12 +285,6 @@
       ],
       "id": "d4b0a02e-6245-4bba-9ccd-ace66258cdff",
       "name": "Update State",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_WITH_PLANE_AUTH_ID",
-          "name": "Plane API Key"
-        }
-      },
       "continueOnFail": true
     }
   ],
