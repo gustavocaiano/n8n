@@ -24,7 +24,8 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst sd = $getWorkflowStaticData('global');\nsd.lastShaByProject = sd.lastShaByProject || {};\nsd.lastPollTime = sd.lastPollTime || '';\n// The group ID is the only config — the backstop auto-discovers all projects\n// under it (including subgroups) via the GitLab API. New repos need no config change.\nreturn [{\n  json: {\n    groupId: $env.GITLAB_GROUP_ID,\n    since: sd.lastPollTime || '',\n  }\n}];\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst sd = $getWorkflowStaticData('global');\nsd.lastShaByProject = sd.lastShaByProject || {};\nsd.lastPollTime = sd.lastPollTime || '';\n\n// Fixed scan window captured once per poll run. Commits are fetched with\n// since=lastPollTime (or scanUntil on the first repaired run) AND until=scanUntil,\n// bounding each poll to a closed time window instead of an open-ended \"since\".\nconst scanUntil = new Date().toISOString();\n\nlet since;\nif (!sd.lastPollTime) {\n  // First repaired run: bootstrap the cursor to scanUntil and scan an empty\n  // window (since == until). This intentionally avoids replaying historical\n  // commits that predate the repair.\n  sd.lastPollTime = scanUntil;\n  since = scanUntil;\n} else {\n  since = sd.lastPollTime;\n}\n\nreturn [{\n  json: {\n    groupId: $env.GITLAB_GROUP_ID,\n    since: since,\n    scanUntil: scanUntil,\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -82,12 +83,12 @@
         0
       ],
       "id": "ab20b260-6b1f-42e0-95bc-09e897a3d63a",
-      "name": "List Group Projects",
-      "continueOnFail": true
+      "name": "List Group Projects"
     },
     {
       "parameters": {
-        "jsCode": "\n// Split the GitLab group-projects response into one item per project.\n// HTTP Request v4.2 does not auto-split top-level JSON arrays — handle both shapes.\nconst inputAll = $input.all();\nconst projects = (inputAll.length === 1 && Array.isArray(inputAll[0].json))\n  ? inputAll[0].json\n  : inputAll.map(i => i.json);\nconst since = $('Backstop Init').first().json.since;\nreturn projects.map(p => ({\n  json: {\n    projectId: String(p.id),\n    since: since,\n  }\n}));\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\n// Split the GitLab group-projects response into one item per project.\n// HTTP Request v4.2 does not auto-split top-level JSON arrays — handle both shapes.\nconst inputAll = $input.all();\nconst projects = (inputAll.length === 1 && Array.isArray(inputAll[0].json))\n  ? inputAll[0].json\n  : inputAll.map(i => i.json);\nconst init = $('Backstop Init').first().json;\nconst since = init.since;\nconst scanUntil = init.scanUntil;\nreturn projects.map(p => ({\n  json: {\n    projectId: String(p.id),\n    since: since,\n    scanUntil: scanUntil,\n  }\n}));\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -110,12 +111,35 @@
               "value": "={{ $json.since }}"
             },
             {
+              "name": "until",
+              "value": "={{ $json.scanUntil }}"
+            },
+            {
               "name": "per_page",
               "value": "100"
             }
           ]
         },
-        "options": {},
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "responseIsEmpty",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 0
+            }
+          }
+        },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -133,12 +157,12 @@
         0
       ],
       "id": "ca442d34-4db6-4b7e-8811-10f6796effde",
-      "name": "List Commits",
-      "continueOnFail": true
+      "name": "List Commits"
     },
     {
       "parameters": {
-        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z]+)(-?)(\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1] + '-' + m[3];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// Update per-project SHA pointer + normalize commits\nconst sd = $getWorkflowStaticData('global');\nsd.lastShaByProject = sd.lastShaByProject || {};\nsd.lastPollTime = sd.lastPollTime || '';\n\nconst initItem = $('Backstop Init').item.json;\nconst projectId = initItem.projectId;\n\nconst commits = Array.isArray($input.first().json) ? $input.first().json : [];\nif (commits.length > 0) {\n  sd.lastShaByProject[projectId] = commits[0].id;\n  sd.lastPollTime = commits[0].committed_date || new Date().toISOString();\n}\n\nconst items = [];\nfor (const commit of commits) {\n  const msg = commit.message || '';\n  const refs = classifyMessage(msg);\n  for (const r of refs) {\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: r.action === 'close' ? 'mention' : r.action,\n        commitSha: commit.id,\n        commitUrl: commit.web_url || '',\n        commitMessage: msg,\n        commitTitle: commit.title || msg.split('\\n')[0],\n        author: commit.author_name || '',\n        branch: '',\n        isDefaultBranch: false,\n        source: 'push',\n        isBackstop: true,\n        planeProjectUuid: PLANE_PROJECT.uuid,\n      },\n    });\n  }\n}\nreturn items;\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z]+)(-?)(\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1] + '-' + m[3];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// runOnceForAllItems: flatten every input item. Some items wrap a commit array\n// (one per pagination page), others are a single commit object. Do NOT assume\n// $input.first() is an array.\nconst raw = $input.all();\nconst initScanUntil = $('Backstop Init').first().json.scanUntil;\n\n// Split Projects items carry projectId; reach them via pairedItem to stamp\n// gitlabProjectId on each commit. Absence must not block processing.\nlet splitProjects = [];\ntry { splitProjects = $('Split Projects').all(); } catch (e) { splitProjects = []; }\n\nfunction getPairedIndex(item) {\n  const pi = item.pairedItem;\n  if (!pi) return null;\n  const p = Array.isArray(pi) ? pi[0] : pi;\n  if (p && typeof p.item === 'number') return p.item;\n  if (p && p.item !== undefined) { const n = Number(p.item); if (!isNaN(n)) return n; }\n  return null;\n}\n\nconst entries = [];\nfor (const rawItem of raw) {\n  const pairedIdx = getPairedIndex(rawItem);\n  let projectId = '';\n  if (pairedIdx !== null && splitProjects[pairedIdx] && splitProjects[pairedIdx].json) {\n    projectId = String(splitProjects[pairedIdx].json.projectId || '');\n  }\n  if (Array.isArray(rawItem.json)) {\n    for (const c of rawItem.json) entries.push({ commit: c, projectId });\n  } else if (rawItem.json && typeof rawItem.json === 'object') {\n    entries.push({ commit: rawItem.json, projectId });\n  }\n}\n\n// Filter malformed/non-commit items: a real GitLab commit has a SHA (id).\nconst items = [];\nfor (const entry of entries) {\n  const commit = entry.commit;\n  if (!commit || typeof commit !== 'object' || !commit.id) continue;\n  const msg = commit.message || '';\n  const refs = classifyMessage(msg);\n  for (const r of refs) {\n    // Backstop semantics: every non-reopen ref becomes a mention.\n    const action = r.action === 'reopen' ? 'reopen' : 'mention';\n    items.push({\n      json: {\n        issueKey: r.issueKey,\n        action: action,\n        commitSha: commit.id,\n        commitUrl: commit.web_url || '',\n        commitMessage: msg,\n        commitTitle: commit.title || msg.split('\\n')[0],\n        author: commit.author_name || '',\n        branch: '',\n        isDefaultBranch: false,\n        source: 'push',\n        isBackstop: true,\n        planeProjectUuid: PLANE_PROJECT.uuid,\n        gitlabProjectId: entry.projectId,\n      },\n    });\n  }\n}\n\n// Advance the global cursor to the fixed scan-window end. n8n persists static\n// data only on successful production execution, so this is saved only when the\n// whole run completes without throwing (preventing cursor advancement on error).\nconst sd = $getWorkflowStaticData('global');\nsd.lastPollTime = initScanUntil;\n\nreturn items;\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -151,7 +175,8 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z]+)(-?)(\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1] + '-' + m[3];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// REDUCER: group raw actions by issue, apply precedence + guards\nconst allItems = $input.all ? $input.all().map(i => i.json) : items.map(i => i.json);\nif (!allItems.length) return [];\nconst isBackstop = allItems[0].isBackstop || false;\n\nconst groups = {};\nfor (const item of allItems) {\n  const key = item.issueKey;\n  if (!groups[key]) groups[key] = [];\n  groups[key].push(item);\n}\n\nconst projStates = PLANE_PROJECT.states;\nconst results = [];\nfor (const issueKey of Object.keys(groups)) {\n  const actions = groups[issueKey];\n\n  const hasReopen = actions.some(a => a.action === 'reopen');\n  const hasMerged = actions.some(a => a.action === 'merged');\n  const hasCloseInMr = actions.some(a => a.action === 'close-in-mr');\n  const hasMrOpen = actions.some(a => a.action === 'mr-open');\n  const hasMention = actions.some(a => a.action === 'mention');\n  const hasClose = actions.some(a => a.action === 'close');\n  const hasMrClosed = actions.some(a => a.action === 'mr-closed');\n\n  // close on default branch = already merged → Done; close on feature branch → In Review\n  const hasCloseOnDefault = actions.some(a => a.action === 'close' && a.isDefaultBranch);\n  const hasCloseOnFeature = actions.some(a => a.action === 'close' && !a.isDefaultBranch);\n\n  let desiredState = null;\n  let actionLabel = '';\n  let commentParts = [];\n\n  if (hasReopen) {\n    desiredState = projStates.inProgress; actionLabel = 'reopen';\n  } else if (hasMerged || hasCloseOnDefault) {\n    desiredState = projStates.done; actionLabel = hasMerged ? 'merged' : 'close';\n  } else if (hasCloseInMr || hasCloseOnFeature) {\n    desiredState = projStates.inReview; actionLabel = 'close';\n  } else if (hasMrOpen) {\n    desiredState = projStates.inProgress; actionLabel = 'mr-open';\n  } else if (hasMention) {\n    desiredState = projStates.inProgress; actionLabel = 'mention';\n  } else if (hasMrClosed) {\n    desiredState = projStates.todo; actionLabel = 'mr-closed';\n  }\n  if (!desiredState) continue;\n\n  for (const a of actions) {\n    if (a.source === 'push' && a.commitUrl) {\n      const shaShort = (a.commitSha || '').substring(0, 7);\n      commentParts.push(`mentioned in commit <a href=\"${a.commitUrl}\">${shaShort}</a> by ${a.author || 'unknown'}: <i>${a.commitTitle || ''}</i>`);\n    } else if (a.source === 'mr' && a.mrUrl) {\n      commentParts.push(`MR <a href=\"${a.mrUrl}\">!${a.mrIid || ''}: ${a.mrTitle || ''}</a>`);\n    }\n  }\n\n  let externalId;\n  if (actionLabel === 'merged' || actionLabel === 'close-in-mr' || actionLabel === 'mr-open' || actionLabel === 'mr-closed') {\n    const a = actions.find(x => x.source === 'mr');\n    externalId = `gitlab-mr-${a && a.mrIid}-${actionLabel}-${issueKey}`;\n  } else {\n    const a = actions.find(x => x.source === 'push' && x.commitSha);\n    externalId = `gitlab-commit-${(a && a.commitSha) || 'unknown'}-${issueKey}`;\n  }\n\n  let shouldChangeState = true;\n  let guardReason = '';\n  if (isBackstop && (actionLabel === 'mr-closed')) {\n    shouldChangeState = false;\n    guardReason = 'backstop: mr-closed downgrade not allowed in backstop mode';\n  }\n\n  const sentinel = `<!-- n8n-bridge: src=${actions[0].source}, action=${actionLabel}, issue=${issueKey} -->`;\n\n  results.push({\n    json: {\n      issueKey: issueKey,\n      desiredStateName: actionLabel,\n      targetStateUuid: desiredState,\n      shouldChangeState: shouldChangeState,\n      guardReason: guardReason,\n      commentHtml: sentinel + '\\n' + commentParts.join('<br>\\n'),\n      externalId: externalId,\n      externalSource: 'gitlab',\n      mrUrl: actions.find(x => x.mrUrl) ? actions.find(x => x.mrUrl).mrUrl : '',\n      mrTitle: actions.find(x => x.mrTitle) ? actions.find(x => x.mrTitle).mrTitle : '',\n      gitlabProjectId: actions.find(x => x.gitlabProjectId) ? actions.find(x => x.gitlabProjectId).gitlabProjectId : '',\n      commitShas: actions.filter(x => x.source === 'push' && x.commitSha).map(x => x.commitSha),\n      mrIid: actions.find(x => x.mrIid) ? actions.find(x => x.mrIid).mrIid : '',\n      mrDescription: actions.find(x => x.mrDescription) ? actions.find(x => x.mrDescription).mrDescription : '',\n      isBackstop: isBackstop,\n      planeProjectUuid: PLANE_PROJECT.uuid,\n    },\n  });\n}\nreturn results;\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\n\n// REDUCER (backstop): emit ONE decision per normalized commit+issue.\n// We deliberately do NOT group a whole poll into a single output per issue —\n// grouping loses individual commits. One decision per commit+issue means each\n// commit gets its own Plane comment, and the realtime webhook + backstop\n// deduplicate via a deterministic external_id.\nconst allItems = $input.all ? $input.all().map(i => i.json) : [];\nif (!allItems.length) return [];\nconst isBackstop = allItems[0].isBackstop || false;\nconst projStates = PLANE_PROJECT.states;\n\nconst results = [];\nfor (const item of allItems) {\n  const issueKey = item.issueKey;\n  const commitSha = item.commitSha;\n  if (!issueKey || !commitSha) continue;\n\n  // Backstop only ever targets In Progress: reopen -> In Progress, mention -> In Progress.\n  const actionLabel = item.action === 'reopen' ? 'reopen' : 'mention';\n  const desiredState = projStates.inProgress;\n\n  const shaShort = (commitSha || '').substring(0, 7);\n  const commentParts = [\n    `mentioned in commit <a href=\"${item.commitUrl || ''}\">${shaShort}</a> by ${item.author || 'unknown'}: <i>${item.commitTitle || ''}</i>`,\n  ];\n\n  // Deterministic id so realtime + backstop runs collapse to one comment.\n  const externalId = `gitlab-commit-${commitSha}-${issueKey}`;\n  const sentinel = `<!-- n8n-bridge: src=${item.source || 'push'}, action=${actionLabel}, issue=${issueKey} -->`;\n\n  results.push({\n    json: {\n      issueKey: issueKey,\n      desiredStateName: actionLabel,\n      targetStateUuid: desiredState,\n      shouldChangeState: true,\n      guardReason: '',\n      commentHtml: sentinel + '\\n' + commentParts.join('<br>\\n'),\n      externalId: externalId,\n      externalSource: 'gitlab',\n      mrUrl: '',\n      mrTitle: '',\n      gitlabProjectId: item.gitlabProjectId || '',\n      commitShas: [commitSha],\n      mrIid: '',\n      mrDescription: '',\n      isBackstop: isBackstop,\n      planeProjectUuid: PLANE_PROJECT.uuid,\n      commitSha: commitSha,\n      commitUrl: item.commitUrl || '',\n    },\n  });\n}\nreturn results;\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -184,12 +209,12 @@
         0
       ],
       "id": "51a2d0a4-9a5a-44db-85f4-e8c9fdc5af56",
-      "name": "Get Work Item",
-      "continueOnFail": true
+      "name": "Get Work Item"
     },
     {
       "parameters": {
-        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\nconst ISSUE_RE = /(?<![A-Z0-9])([A-Z][A-Z]+)(-?)(\\d+)(?![A-Z0-9-])/g;\nconst CLOSE_RE = /\\b(closes|fixes|resolves)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\nconst REOPEN_RE = /\\b(reopens)\\s+([A-Z][A-Z]+)(-?)(\\d+)\\b/g;\n\nfunction classifyMessage(message) {\n  const results = [];\n  const seen = new Set();\n  let m;\n  CLOSE_RE.lastIndex = 0;\n  while ((m = CLOSE_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':close')) { results.push({issueKey: key, action: 'close'}); seen.add(key + ':close'); }\n  }\n  REOPEN_RE.lastIndex = 0;\n  while ((m = REOPEN_RE.exec(message)) !== null) {\n    const key = m[2] + '-' + m[4];\n    if (!seen.has(key + ':reopen')) { results.push({issueKey: key, action: 'reopen'}); seen.add(key + ':reopen'); }\n  }\n  ISSUE_RE.lastIndex = 0;\n  while ((m = ISSUE_RE.exec(message)) !== null) {\n    const key = m[1] + '-' + m[3];\n    if (!seen.has(key + ':close') && !seen.has(key + ':reopen') && !seen.has(key + ':mention')) {\n      results.push({issueKey: key, action: 'mention'}); seen.add(key + ':mention');\n    }\n  }\n  return results;\n}\n\n// Post-fetch guard: re-evaluate shouldChangeState using current Plane state\nconst wi = $input.first().json;\nconst reducerItems = $('Reducer').all();\nconst idx = $itemIndex || 0;\nconst r = reducerItems[idx] ? reducerItems[idx].json : {};\n\nconst projStates = PLANE_PROJECT.states;\nconst stateNameByUuid = {};\nfor (const k of Object.keys(projStates)) stateNameByUuid[projStates[k]] = k;\n\nconst currentStateName = stateNameByUuid[wi.state] || 'unknown';\nconst targetStateName = stateNameByUuid[r.targetStateUuid] || 'unknown';\nconst actionLabel = r.desiredStateName || '';\n\nlet shouldChangeState = r.shouldChangeState;\nlet guardReason = r.guardReason || '';\n\nif (currentStateName === 'cancelled') {\n  shouldChangeState = false; guardReason = 'protected: Cancelled is human-owned';\n} else if (currentStateName === 'done' && actionLabel !== 'reopen') {\n  shouldChangeState = false; guardReason = 'protected: Done cannot be downgraded except by reopen';\n} else if (currentStateName === 'inReview' && (actionLabel === 'mention' || actionLabel === 'mr-open')) {\n  shouldChangeState = false; guardReason = 'protected: In Review not downgraded by bare mention';\n} else if (wi.state === r.targetStateUuid) {\n  shouldChangeState = false; guardReason = 'already in target state';\n} else if (actionLabel === 'mr-closed' && currentStateName !== 'inProgress' && currentStateName !== 'inReview') {\n  shouldChangeState = false; guardReason = 'mr-closed: can only downgrade from In Progress/In Review';\n}\n\nreturn [{\n  json: {\n    issueKey: r.issueKey,\n    workItemId: wi.id,\n    project: wi.project,\n    currentState: wi.state,\n    currentStateName: currentStateName,\n    targetStateUuid: r.targetStateUuid,\n    targetStateName: targetStateName,\n    shouldChangeState: shouldChangeState,\n    guardReason: guardReason,\n    commentHtml: r.commentHtml,\n    externalId: r.externalId,\n    externalSource: r.externalSource,\n    mrUrl: r.mrUrl || '',\n    mrTitle: r.mrTitle || '',\n    gitlabProjectId: r.gitlabProjectId || '',\n    commitShas: r.commitShas || [],\n    mrIid: r.mrIid || '',\n    mrDescription: r.mrDescription || '',\n    workItemUrl: `https://plane.nforensic.site/${WORKSPACE_SLUG}/projects/${wi.project}/work-items/${wi.id}`,\n  },\n}];\n"
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst PLANE_PROJECT = JSON.parse($env.PLANE_PROJECT_DEV);\nconst WORKSPACE_SLUG = $env.WORKSPACE_SLUG;\n\nconst projStates = PLANE_PROJECT.states;\nconst stateNameByUuid = {};\nfor (const k of Object.keys(projStates)) stateNameByUuid[projStates[k]] = k;\n\n// runOnceForAllItems: iterate every work item returned by Get Work Item and pair\n// each to its Reducer decision via the work item's pairedItem index (which points\n// back through Get Work Item to the Reducer output). Fall back to the same index.\nconst workItems = $input.all();\nconst reducerItems = $('Reducer').all();\n\nfunction getPairedIndex(item, fallback) {\n  const pi = item.pairedItem;\n  if (!pi) return fallback;\n  const p = Array.isArray(pi) ? pi[0] : pi;\n  if (p && typeof p.item === 'number') return p.item;\n  if (p && p.item !== undefined) { const n = Number(p.item); if (!isNaN(n)) return n; }\n  return fallback;\n}\n\nconst results = [];\nfor (let i = 0; i < workItems.length; i++) {\n  const wiItem = workItems[i];\n  const wi = (wiItem && wiItem.json) ? wiItem.json : {};\n\n  const rIndex = getPairedIndex(wiItem, i);\n  const reducerItem = reducerItems[rIndex];\n  const r = (reducerItem && reducerItem.json) ? reducerItem.json : null;\n\n  // Validate required fields. Throw rather than constructing undefined URLs.\n  if (!r) {\n    throw new Error(`Apply Guards: no Reducer decision paired for work item index ${i} (pairedItem=${rIndex})`);\n  }\n  if (!r.issueKey || !r.targetStateUuid || !r.externalId || !r.commentHtml) {\n    throw new Error(`Apply Guards: malformed Reducer decision at index ${rIndex}: missing required fields`);\n  }\n  if (!wi.id || !wi.project || !wi.state) {\n    throw new Error(`Apply Guards: malformed Plane work item at index ${i}: missing id/project/state`);\n  }\n\n  const currentStateName = stateNameByUuid[wi.state] || 'unknown';\n  const targetStateName = stateNameByUuid[r.targetStateUuid] || 'unknown';\n  const actionLabel = r.desiredStateName || '';\n\n  let shouldChangeState = r.shouldChangeState;\n  let guardReason = r.guardReason || '';\n\n  // Protections (always applied). Comments still emit for protected states —\n  // only the state change is suppressed.\n  if (currentStateName === 'cancelled') {\n    shouldChangeState = false; guardReason = 'protected: Cancelled is human-owned';\n  } else if (currentStateName === 'done' && actionLabel !== 'reopen') {\n    shouldChangeState = false; guardReason = 'protected: Done cannot be downgraded except by reopen';\n  } else if (currentStateName === 'inReview' && (actionLabel === 'mention' || actionLabel === 'mr-open')) {\n    shouldChangeState = false; guardReason = 'protected: In Review not downgraded by bare mention';\n  } else if (wi.state === r.targetStateUuid) {\n    shouldChangeState = false; guardReason = 'already in target state';\n  } else if (actionLabel === 'mr-closed' && currentStateName !== 'inProgress' && currentStateName !== 'inReview') {\n    shouldChangeState = false; guardReason = 'mr-closed: can only downgrade from In Progress/In Review';\n  }\n\n  results.push({\n    json: {\n      issueKey: r.issueKey,\n      workItemId: wi.id,\n      project: wi.project,\n      currentState: wi.state,\n      currentStateName: currentStateName,\n      targetStateUuid: r.targetStateUuid,\n      targetStateName: targetStateName,\n      shouldChangeState: shouldChangeState,\n      guardReason: guardReason,\n      commentHtml: r.commentHtml,\n      externalId: r.externalId,\n      externalSource: r.externalSource || 'gitlab',\n      mrUrl: r.mrUrl || '',\n      mrTitle: r.mrTitle || '',\n      gitlabProjectId: r.gitlabProjectId || '',\n      commitShas: r.commitShas || [],\n      mrIid: r.mrIid || '',\n      mrDescription: r.mrDescription || '',\n      workItemUrl: `https://plane.nforensic.site/${WORKSPACE_SLUG}/browse/${r.issueKey}/`,\n    },\n    pairedItem: { item: i },\n  });\n}\nreturn results;\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -207,7 +232,14 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { comment_html: $json.commentHtml, access: 'INTERNAL', external_id: $json.externalId, external_source: 'gitlab' } }}",
-        "options": {},
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -225,8 +257,7 @@
         0
       ],
       "id": "330ba0ce-0514-4867-bf85-ba9162edb433",
-      "name": "Create Comment",
-      "continueOnFail": true
+      "name": "Create Comment"
     },
     {
       "parameters": {
@@ -284,8 +315,21 @@
         200
       ],
       "id": "d4b0a02e-6245-4bba-9ccd-ace66258cdff",
-      "name": "Update State",
-      "continueOnFail": true
+      "name": "Update State"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\n// Validate the Plane Create Comment HTTP response. Accept only 2xx and 409\n// (409 = duplicate external_id, the expected idempotency hit). Any other status\n// is a real failure — throw so the workflow stops and the static cursor is NOT\n// saved. Return the original Apply Guards candidate (recovered via paired-item\n// linkage) so the branch output remains usable downstream.\nconst responses = $input.all();\nconst guardItems = $('Apply Guards').all();\n\nfunction getPairedIndex(item, fallback) {\n  const pi = item.pairedItem;\n  if (!pi) return fallback;\n  const p = Array.isArray(pi) ? pi[0] : pi;\n  if (p && typeof p.item === 'number') return p.item;\n  if (p && p.item !== undefined) { const n = Number(p.item); if (!isNaN(n)) return n; }\n  return fallback;\n}\n\nconst results = [];\nfor (let i = 0; i < responses.length; i++) {\n  const respItem = responses[i];\n  const body = (respItem && respItem.json) ? respItem.json : {};\n  const statusCode = body.statusCode;\n\n  if (statusCode === undefined || !((statusCode >= 200 && statusCode < 300) || statusCode === 409)) {\n    throw new Error(`Validate Comment Result: unexpected Plane comment status ${statusCode}`);\n  }\n\n  const gIndex = getPairedIndex(respItem, i);\n  const candidateItem = guardItems[gIndex];\n  const candidate = (candidateItem && candidateItem.json) ? candidateItem.json : null;\n  if (!candidate) {\n    throw new Error(`Validate Comment Result: no Apply Guards candidate at index ${gIndex}`);\n  }\n\n  results.push({\n    json: {\n      ...candidate,\n      commentStatusCode: statusCode,\n      commentIdempotent: statusCode === 409,\n    },\n    pairedItem: { item: gIndex },\n  });\n}\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2040,
+        0
+      ],
+      "id": "e7c1f9a0-3b2d-4e8a-9f1c-7d6b5a4e3c01",
+      "name": "Validate Comment Result"
     }
   ],
   "pinData": {},
@@ -404,6 +448,17 @@
           }
         ],
         []
+      ]
+    },
+    "Create Comment": {
+      "main": [
+        [
+          {
+            "node": "Validate Comment Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
