@@ -1,0 +1,583 @@
+{
+  "name": "Plane DEV Daily Briefing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2ed82880-b483-47c5-9fe5-926e199a707a",
+      "name": "Weekdays at 08:30"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction required(name) {\n  const value = String($env[name] || '').trim();\n  if (!value) throw new Error(`Init & Validate Config: missing ${name}`);\n  return value;\n}\n\nfunction parseJson(name, raw) {\n  try { return JSON.parse(raw); }\n  catch (error) { throw new Error(`Init & Validate Config: ${name} is not valid JSON`); }\n}\n\nconst workspaceSlug = required('WORKSPACE_SLUG');\nconst planeApiKey = required('PLANE_API_KEY');\nconst openAiApiKey = required('OPENAI_API_KEY');\nconst telegramChatId = required('PLANE_DAILY_BRIEFING_TELEGRAM_CHAT_ID');\nconst project = parseJson('PLANE_PROJECT_DEV', required('PLANE_PROJECT_DEV'));\nconst recipients = parseJson(\n  'PLANE_DAILY_BRIEFING_RECIPIENTS',\n  required('PLANE_DAILY_BRIEFING_RECIPIENTS'),\n);\n\nif (!/^-\\d+$/.test(telegramChatId)) {\n  throw new Error('Init & Validate Config: PLANE_DAILY_BRIEFING_TELEGRAM_CHAT_ID must be a negative Telegram group id');\n}\nif (!project || typeof project !== 'object' || !String(project.uuid || '').trim()) {\n  throw new Error('Init & Validate Config: PLANE_PROJECT_DEV.uuid is required');\n}\nif (!project.states || typeof project.states !== 'object') {\n  throw new Error('Init & Validate Config: PLANE_PROJECT_DEV.states is required');\n}\nfor (const stateName of ['backlog', 'todo', 'inProgress', 'inReview', 'done', 'cancelled']) {\n  if (!String(project.states[stateName] || '').trim()) {\n    throw new Error(`Init & Validate Config: PLANE_PROJECT_DEV.states.${stateName} is required`);\n  }\n}\nif (!Array.isArray(recipients) || recipients.length === 0) {\n  throw new Error('Init & Validate Config: PLANE_DAILY_BRIEFING_RECIPIENTS must be a non-empty array');\n}\n\nconst seenPlaneIds = new Set();\nconst seenTelegramUsers = new Set();\nconst normalizedRecipients = recipients.map((recipient, index) => {\n  if (!recipient || typeof recipient !== 'object' || Array.isArray(recipient)) {\n    throw new Error(`Init & Validate Config: recipient ${index + 1} must be an object`);\n  }\n  const allowedKeys = new Set(['planeUserId', 'displayName', 'telegramUsername']);\n  const unknownKeys = Object.keys(recipient).filter(key => !allowedKeys.has(key));\n  if (unknownKeys.length) {\n    throw new Error(`Init & Validate Config: recipient ${index + 1} has unsupported keys: ${unknownKeys.join(', ')}`);\n  }\n  const planeUserId = String(recipient.planeUserId || '').trim();\n  const displayName = String(recipient.displayName || '').trim();\n  const telegramUsername = String(recipient.telegramUsername || '').trim().replace(/^@+/, '');\n  if (!planeUserId || !displayName || !telegramUsername) {\n    throw new Error(`Init & Validate Config: recipient ${index + 1} requires planeUserId, displayName and telegramUsername`);\n  }\n  if (displayName.length > 120) {\n    throw new Error(`Init & Validate Config: recipient ${index + 1} displayName exceeds 120 characters`);\n  }\n  if (!/^[A-Za-z0-9_]{5,32}$/.test(telegramUsername)) {\n    throw new Error(`Init & Validate Config: recipient ${index + 1} has an invalid Telegram username`);\n  }\n  const planeKey = planeUserId.toLowerCase();\n  const telegramKey = telegramUsername.toLowerCase();\n  if (seenPlaneIds.has(planeKey)) {\n    throw new Error(`Init & Validate Config: duplicate planeUserId at recipient ${index + 1}`);\n  }\n  if (seenTelegramUsers.has(telegramKey)) {\n    throw new Error(`Init & Validate Config: duplicate telegramUsername at recipient ${index + 1}`);\n  }\n  seenPlaneIds.add(planeKey);\n  seenTelegramUsers.add(telegramKey);\n  return { planeUserId, displayName, telegramUsername: `@${telegramUsername}` };\n});\n\nreturn [{\n  json: {\n    workspaceSlug,\n    projectId: String(project.uuid).trim(),\n    states: project.states,\n    recipients: normalizedRecipients,\n    telegramChatId,\n    openAiModel: String($env.PLANE_DAILY_BRIEFING_OPENAI_MODEL || 'gpt-5-mini').trim() || 'gpt-5-mini',\n    // Presence is validated above. Keys stay in $env and are never emitted.\n    configured: Boolean(planeApiKey && openAiApiKey),\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "64554724-ad40-451e-897f-4a0c98b72f6c",
+      "name": "Init & Validate Config"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $json.workspaceSlug }}/projects/{{ $json.projectId }}/work-items/",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "1000"
+            },
+            {
+              "name": "expand",
+              "value": "state,assignees,labels,module"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "1b60463c-8c45-449a-8200-e2f7c6f85c75",
+      "name": "List DEV Work Items"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction responseRoot(items) {\n  if (!items.length) throw new Error('Store Work Items: Plane returned no response item');\n  if (items.length === 1) {\n    const value = items[0].json;\n    if (value && typeof value === 'object' && value.body !== undefined) {\n      const status = Number(value.statusCode || 200);\n      if (status < 200 || status >= 300) throw new Error(`Store Work Items: Plane returned HTTP ${status}`);\n      return value.body;\n    }\n    return value;\n  }\n  return items.map(item => item.json);\n}\n\nfunction extractList(root) {\n  if (Array.isArray(root)) return root;\n  if (!root || typeof root !== 'object') {\n    throw new Error('Store Work Items: unrecognized Plane response shape');\n  }\n  for (const key of ['results', 'items', 'data', 'work_items', 'issues']) {\n    if (Array.isArray(root[key])) return root[key];\n  }\n  throw new Error('Store Work Items: Plane response does not contain a recognized list');\n}\n\nfunction hasMore(root, count) {\n  if (!root || Array.isArray(root) || typeof root !== 'object') return count >= 1000;\n  const nextFlag = root.next_page_results;\n  if (nextFlag === true || String(nextFlag).toLowerCase() === 'true') return true;\n  const total = Number(root.total_results ?? root.total_count ?? root.count);\n  if (Number.isFinite(total) && total > count) return true;\n  const currentPage = Number(root.current_page ?? root.page);\n  const totalPages = Number(root.total_pages);\n  if (Number.isFinite(currentPage) && Number.isFinite(totalPages) && currentPage < totalPages) return true;\n  if (typeof root.next === 'string' && root.next.trim()) return true;\n  // Plane can include next_cursor even on the final page. Cursor presence alone\n  // is not evidence that another page exists.\n  return count >= 1000;\n}\n\nconst root = responseRoot($input.all());\nconst issues = extractList(root);\nif (hasMore(root, issues.length)) {\n  throw new Error('Store Work Items: Plane work-item page may be truncated at 1000 records; pagination is required before briefing generation');\n}\nconst config = $('Init & Validate Config').first().json;\nreturn [{ json: { ...config, rawIssues: issues } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "b5be2e09-bb0d-4c7f-a35c-085a1892ac0f",
+      "name": "Store Work Items"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $json.workspaceSlug }}/projects/{{ $json.projectId }}/modules-lite/",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "1000"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "id": "5a1716f5-4300-42bd-afdc-879cc7d86875",
+      "name": "List DEV Modules"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction responseRoot(value) {\n  if (value && typeof value === 'object' && value.body !== undefined) {\n    const status = Number(value.statusCode || 200);\n    if (status < 200 || status >= 300) throw new Error(`Prepare Developer Briefings: Plane module issues returned HTTP ${status}`);\n    return value.body;\n  }\n  return value;\n}\n\nfunction extractList(root) {\n  if (Array.isArray(root)) return root;\n  if (!root || typeof root !== 'object') {\n    throw new Error('Prepare Developer Briefings: unrecognized Plane module-membership response shape');\n  }\n  for (const key of ['results', 'items', 'data', 'module_issues', 'issues', 'work_items']) {\n    if (Array.isArray(root[key])) return root[key];\n  }\n  throw new Error('Prepare Developer Briefings: Plane module-membership response does not contain a recognized list');\n}\n\nfunction hasMore(root, count) {\n  if (!root || Array.isArray(root) || typeof root !== 'object') return count >= 1000;\n  const nextFlag = root.next_page_results;\n  if (nextFlag === true || String(nextFlag).toLowerCase() === 'true') return true;\n  const total = Number(root.total_results ?? root.total_count ?? root.count);\n  if (Number.isFinite(total) && total > count) return true;\n  const currentPage = Number(root.current_page ?? root.page);\n  const totalPages = Number(root.total_pages);\n  if (Number.isFinite(currentPage) && Number.isFinite(totalPages) && currentPage < totalPages) return true;\n  if (typeof root.next === 'string' && root.next.trim()) return true;\n  return count >= 1000;\n}\n\nfunction pairedIndex(item, fallback) {\n  const paired = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const value = paired && paired.item !== undefined ? Number(paired.item) : fallback;\n  return Number.isFinite(value) ? value : fallback;\n}\n\nfunction idOf(value) {\n  if (value === null || value === undefined) return '';\n  if (typeof value === 'string' || typeof value === 'number') return String(value);\n  if (typeof value !== 'object') return '';\n  return String(value.id || value.uuid || value.member_id || value.user_id || value.assignee_id || '');\n}\n\nfunction collectIds(value, out = []) {\n  if (Array.isArray(value)) {\n    for (const child of value) collectIds(child, out);\n    return out;\n  }\n  const direct = idOf(value);\n  if (direct) out.push(direct);\n  if (value && typeof value === 'object') {\n    for (const key of ['member', 'user', 'assignee', 'module', 'module_detail']) {\n      if (value[key] !== undefined) collectIds(value[key], out);\n    }\n    for (const key of ['module_id', 'assignee_id', 'member_id', 'user_id']) {\n      if (value[key] !== undefined) out.push(String(value[key]));\n    }\n  }\n  return out;\n}\n\nfunction firstString(...values) {\n  for (const value of values) {\n    if (value !== null && value !== undefined && String(value).trim()) return String(value).trim();\n  }\n  return '';\n}\n\nfunction stateId(issue) {\n  return firstString(idOf(issue.state), issue.state_id, issue.state_uuid, idOf(issue.state_detail));\n}\n\nfunction assigneeIds(issue) {\n  const ids = [];\n  for (const value of [issue.assignees, issue.assignee_ids, issue.assignee, issue.assignee_id]) {\n    collectIds(value, ids);\n  }\n  return [...new Set(ids.filter(Boolean).map(String))];\n}\n\nfunction moduleIds(issue) {\n  const ids = [];\n  for (const value of [issue.module, issue.module_id, issue.modules, issue.module_ids, issue.issue_module, issue.issue_modules]) {\n    collectIds(value, ids);\n  }\n  return [...new Set(ids.filter(Boolean).map(String))];\n}\n\nfunction moduleIssueKey(record) {\n  for (const value of [record?.issue, record?.issue_id, record?.work_item, record?.work_item_id, record?.issue_detail]) {\n    const id = idOf(value);\n    if (id) return id;\n  }\n  if (record && typeof record === 'object' && (record.name || record.title || record.sequence_id !== undefined)) {\n    return idOf(record);\n  }\n  return '';\n}\n\nfunction labelNames(issue) {\n  const raw = issue.labels || issue.label_details || [];\n  const values = Array.isArray(raw) ? raw : [raw];\n  return values.map(value => {\n    if (typeof value === 'string') return value;\n    return firstString(value?.name, value?.label?.name);\n  }).filter(Boolean);\n}\n\nfunction dateRank(dateString) {\n  if (!dateString) return 0;\n  const due = new Date(`${String(dateString).slice(0, 10)}T23:59:59Z`);\n  if (Number.isNaN(due.getTime())) return 0;\n  const days = Math.ceil((due.getTime() - Date.now()) / 86400000);\n  if (days < 0) return 60;\n  if (days <= 3) return 40;\n  if (days <= 7) return 20;\n  return 0;\n}\n\nconst stored = $('Store Work Items').first().json;\nconst moduleRequests = $('Prepare Module Requests').all();\nconst inputItems = $input.all();\nconst membershipNamesByIssueId = new Map();\nfor (let index = 0; index < inputItems.length; index++) {\n  const responseItem = inputItems[index];\n  if (responseItem.json?.emptyMembership) continue;\n  const requestIndex = pairedIndex(responseItem, index);\n  if (requestIndex < 0 || requestIndex >= moduleRequests.length) {\n    throw new Error(`Prepare Developer Briefings: invalid module pairing index ${requestIndex}`);\n  }\n  const request = moduleRequests[requestIndex];\n  const root = responseRoot(responseItem.json);\n  const memberships = extractList(root);\n  if (hasMore(root, memberships.length)) {\n    throw new Error(`Prepare Developer Briefings: module ${request.json.moduleName} may have more than 1000 work items; pagination is required`);\n  }\n  for (const membership of memberships) {\n    const issueId = moduleIssueKey(membership);\n    if (!issueId) continue;\n    if (!membershipNamesByIssueId.has(issueId)) membershipNamesByIssueId.set(issueId, new Set());\n    membershipNamesByIssueId.get(issueId).add(request.json.moduleName);\n  }\n}\n\nconst moduleNameById = new Map(moduleRequests\n  .filter(item => item.json?.moduleId)\n  .map(item => [String(item.json.moduleId), item.json.moduleName]));\nconst stateNameById = new Map(Object.entries(stored.states).map(([name, id]) => [String(id), name]));\nconst openStateIds = new Set(['backlog', 'todo', 'inProgress', 'inReview'].map(name => String(stored.states[name])));\nconst allowedRecipientIds = new Set(stored.recipients.map(recipient => recipient.planeUserId));\nconst priorityWeight = { urgent: 100, high: 80, medium: 40, low: 20, none: 0 };\nconst stateWeight = { inProgress: 50, todo: 20, backlog: 5, inReview: -20 };\nconst normalized = [];\n\nfor (const issue of stored.rawIssues) {\n  if (!issue || typeof issue !== 'object') continue;\n  if (issue.archived === true || issue.is_archived === true || issue.archived_at) continue;\n  const currentStateId = stateId(issue);\n  if (!openStateIds.has(currentStateId)) continue;\n  const assigned = assigneeIds(issue).filter(id => allowedRecipientIds.has(id));\n  if (!assigned.length) continue;\n\n  const rawPriority = firstString(issue.priority, issue.priority_detail?.key, 'none').toLowerCase();\n  const priority = Object.prototype.hasOwnProperty.call(priorityWeight, rawPriority) ? rawPriority : 'none';\n  const stateKey = stateNameById.get(currentStateId) || 'unknown';\n  const sequence = issue.sequence_id ?? issue.sequence ?? issue.number ?? '';\n  const identifier = firstString(issue.identifier, sequence !== '' ? `DEV-${sequence}` : '', issue.name ? `DEV-${idOf(issue).slice(0, 8)}` : 'DEV-?');\n  const issueId = idOf(issue);\n  const moduleNames = issueId && membershipNamesByIssueId.has(issueId)\n    ? [...membershipNamesByIssueId.get(issueId)]\n    : [];\n  for (const moduleId of moduleIds(issue)) {\n    if (moduleNameById.has(moduleId)) moduleNames.push(moduleNameById.get(moduleId));\n  }\n  const inlineModuleName = firstString(issue.module?.name, issue.module_detail?.name, issue.issue_module?.module?.name);\n  if (inlineModuleName) moduleNames.push(inlineModuleName);\n  const module = moduleNames.length ? [...new Set(moduleNames)].join(', ') : 'Sem módulo';\n  const targetDate = firstString(issue.target_date, issue.due_date);\n  const score = (priorityWeight[priority] || 0) + (stateWeight[stateKey] || 0) + dateRank(targetDate);\n  const item = {\n    identifier,\n    name: firstString(issue.name, issue.title, 'Sem título'),\n    priority,\n    state: stateKey,\n    startDate: firstString(issue.start_date),\n    targetDate,\n    updatedAt: firstString(issue.updated_at, issue.updated),\n    labels: labelNames(issue),\n    module,\n    url: `https://plane.nforensic.site/${encodeURIComponent(stored.workspaceSlug)}/browse/${encodeURIComponent(identifier)}/`,\n    score,\n  };\n  for (const planeUserId of assigned) normalized.push({ planeUserId, item });\n}\n\nconst stateOrder = { inProgress: 0, todo: 1, backlog: 2, inReview: 3, unknown: 4 };\nconst results = [];\nfor (const recipient of stored.recipients) {\n  const issues = normalized\n    .filter(entry => entry.planeUserId === recipient.planeUserId)\n    .map(entry => entry.item)\n    .sort((a, b) => b.score - a.score\n      || (stateOrder[a.state] ?? 9) - (stateOrder[b.state] ?? 9)\n      || String(a.targetDate || '9999-12-31').localeCompare(String(b.targetDate || '9999-12-31'))\n      || a.identifier.localeCompare(b.identifier))\n    .map(({ score, ...issue }) => issue);\n  results.push({\n    json: {\n      recipient,\n      issues,\n      hasIssues: issues.length > 0,\n      telegramChatId: stored.telegramChatId,\n      openAiModel: stored.openAiModel,\n    },\n  });\n}\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "c5dd0274-0979-447a-a24f-e63524de2514",
+      "name": "Prepare Developer Briefings"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasIssues }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ],
+      "id": "75156a43-6c35-47e8-97f3-63f02c973297",
+      "name": "Has Open Issues?"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  required: ['overview', 'first_pick', 'top_three', 'attention'],\n  properties: {\n    overview: { type: 'string' },\n    first_pick: {\n      type: 'object',\n      additionalProperties: false,\n      required: ['identifier', 'reason'],\n      properties: {\n        identifier: { type: 'string' },\n        reason: { type: 'string' },\n      },\n    },\n    top_three: {\n      type: 'array',\n      minItems: 1,\n      maxItems: 3,\n      items: {\n        type: 'object',\n        additionalProperties: false,\n        required: ['identifier', 'name', 'module', 'reason', 'next_step'],\n        properties: {\n          identifier: { type: 'string' },\n          name: { type: 'string' },\n          module: { type: 'string' },\n          reason: { type: 'string' },\n          next_step: { type: 'string' },\n        },\n      },\n    },\n    attention: {\n      type: 'array',\n      maxItems: 4,\n      items: { type: 'string' },\n    },\n  },\n};\n\nconst systemPrompt = [\n  'És um assistente de planeamento diário para uma equipa de desenvolvimento.',\n  'Responde em português de Portugal e usa exclusivamente os dados fornecidos.',\n  'Não inventes bloqueios, estados, datas, dependências, nomes ou trabalho.',\n  'Escolhe no máximo três tarefas reais e preserva exatamente os respetivos identificadores.',\n  'Prioriza urgência e prioridade, prazos vencidos ou próximos, e trabalho já em progresso.',\n  'Em regra, trata tarefas Em Revisão como acompanhamento e não como primeira tarefa, salvo evidência explícita nos dados.',\n  'Propõe um primeiro passo pequeno, concreto e executável para cada escolha.',\n].join(' ');\n\nconst todayParts = new Intl.DateTimeFormat('en-CA', {\n  timeZone: 'Europe/Lisbon',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n}).formatToParts(new Date());\nconst todayByPart = Object.fromEntries(todayParts.map(part => [part.type, part.value]));\nconst today = `${todayByPart.year}-${todayByPart.month}-${todayByPart.day}`;\n\nreturn $input.all().map((item, index) => {\n  const source = item.json;\n  const requestBody = {\n    model: source.openAiModel,\n    store: false,\n    input: [\n      { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },\n      {\n        role: 'user',\n        content: [{\n          type: 'input_text',\n          text: JSON.stringify({\n            developer: source.recipient.displayName,\n            today,\n            timezone: 'Europe/Lisbon',\n            instruction: 'Cria o plano Top 3 para hoje segundo o esquema pedido.',\n            issues: source.issues,\n          }),\n        }],\n      },\n    ],\n    text: {\n      format: {\n        type: 'json_schema',\n        name: 'plane_daily_briefing',\n        strict: true,\n        schema,\n      },\n    },\n  };\n  return { json: { ...source, requestBody }, pairedItem: { item: index } };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -120
+      ],
+      "id": "9cfd4242-7f3c-4467-b539-e5f27510d8bd",
+      "name": "Prepare OpenAI Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.OPENAI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.requestBody }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        -120
+      ],
+      "id": "0d14a0a8-2974-4f3b-953b-e8ecbdc82a85",
+      "name": "OpenAI Top 3 Plan",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction pairedIndex(item, fallback) {\n  const paired = Array.isArray(item.pairedItem) ? item.pairedItem[0] : item.pairedItem;\n  const value = paired && paired.item !== undefined ? Number(paired.item) : fallback;\n  return Number.isFinite(value) ? value : fallback;\n}\n\nfunction outputText(body) {\n  const chunks = [];\n  for (const output of Array.isArray(body?.output) ? body.output : []) {\n    for (const content of Array.isArray(output?.content) ? output.content : []) {\n      if (content?.type === 'output_text' && typeof content.text === 'string') chunks.push(content.text);\n    }\n  }\n  return chunks.join('').trim();\n}\n\nfunction fallback(source) {\n  const selected = source.issues.slice(0, 3);\n  const first = selected[0];\n  return {\n    overview: `Foram encontradas ${source.issues.length} tarefa${source.issues.length === 1 ? '' : 's'} DEV aberta${source.issues.length === 1 ? '' : 's'}.`,\n    first_pick: {\n      identifier: first.identifier,\n      reason: first.state === 'inProgress'\n        ? 'Já está em progresso; retomar reduz trabalho em curso.'\n        : 'É a tarefa com maior prioridade determinística entre as atribuídas.',\n    },\n    top_three: selected.map(issue => ({\n      identifier: issue.identifier,\n      name: issue.name,\n      module: issue.module,\n      reason: [issue.priority !== 'none' ? `Prioridade ${issue.priority}` : '', issue.targetDate ? `prazo ${issue.targetDate}` : '', issue.state === 'inProgress' ? 'já em progresso' : ''].filter(Boolean).join('; ') || 'Próxima tarefa na ordem definida.',\n      next_step: 'Rever o contexto da tarefa e executar a próxima ação concreta descrita no Plane.',\n    })),\n    attention: ['Análise de IA indisponível; foi aplicada uma ordenação determinística às tarefas reais.'],\n  };\n}\n\nfunction validatePlan(plan, source) {\n  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) throw new Error('not an object');\n  const rootKeys = Object.keys(plan).sort().join(',');\n  if (rootKeys !== ['attention', 'first_pick', 'overview', 'top_three'].sort().join(',')) throw new Error('unexpected root properties');\n  if (typeof plan.overview !== 'string' || !plan.overview.trim()) throw new Error('missing overview');\n  if (!plan.first_pick || typeof plan.first_pick !== 'object') throw new Error('invalid first_pick');\n  if (Object.keys(plan.first_pick).sort().join(',') !== ['identifier', 'reason'].sort().join(',')) throw new Error('unexpected first_pick properties');\n  if (typeof plan.first_pick.identifier !== 'string' || !plan.first_pick.identifier.trim()) throw new Error('invalid first_pick identifier');\n  if (typeof plan.first_pick.reason !== 'string' || !plan.first_pick.reason.trim()) throw new Error('invalid first_pick reason');\n  const expectedCount = Math.min(3, source.issues.length);\n  if (!Array.isArray(plan.top_three) || plan.top_three.length !== expectedCount) throw new Error('invalid top_three count');\n  if (!Array.isArray(plan.attention) || plan.attention.length > 4 || plan.attention.some(note => typeof note !== 'string')) throw new Error('invalid attention');\n  const issueById = new Map(source.issues.map(issue => [issue.identifier, issue]));\n  if (!issueById.has(plan.first_pick.identifier)) throw new Error('first_pick not supplied');\n  const seen = new Set();\n  for (const choice of plan.top_three) {\n    if (!choice || typeof choice !== 'object') throw new Error('invalid top_three item');\n    if (Object.keys(choice).sort().join(',') !== ['identifier', 'module', 'name', 'next_step', 'reason'].sort().join(',')) throw new Error('unexpected top_three properties');\n    if (!issueById.has(choice.identifier) || seen.has(choice.identifier)) throw new Error('top_three refers to unknown or duplicate issue');\n    for (const key of ['name', 'module', 'reason', 'next_step']) {\n      if (typeof choice[key] !== 'string' || !choice[key].trim()) throw new Error(`top_three.${key} invalid`);\n    }\n    seen.add(choice.identifier);\n  }\n  if (!seen.has(plan.first_pick.identifier)) throw new Error('first_pick is not in top_three');\n  return plan;\n}\nfunction clip(value, max) {\n  const text = String(value ?? '').trim();\n  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;\n}\n\nfunction escapeHtml(value) {\n  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n}\n\nfunction render(source, plan, usedFallback) {\n  const issueById = new Map(source.issues.map(issue => [issue.identifier, issue]));\n  const stateLabels = { backlog: 'Backlog', todo: 'Por fazer', inProgress: 'Em progresso', inReview: 'Em revisão', unknown: 'Desconhecido' };\n  const priorityLabels = { urgent: 'Urgente', high: 'Alta', medium: 'Média', low: 'Baixa', none: 'Sem prioridade' };\n  const lines = [\n    `<b>Plano diário DEV — ${escapeHtml(source.recipient.displayName)}</b>`,\n    escapeHtml(source.recipient.telegramUsername),\n    '',\n  ];\n  if (usedFallback) lines.push('<i>Análise de IA indisponível; prioridade calculada localmente.</i>', '');\n  lines.push('<b>Resumo</b>', escapeHtml(clip(plan.overview, 500)), '');\n  const first = issueById.get(plan.first_pick.identifier);\n  lines.push(\n    '<b>Começar por</b>',\n    `<a href=\"${escapeHtml(first.url)}\">${escapeHtml(first.identifier)}</a> — ${escapeHtml(clip(first.name, 180))}`,\n    escapeHtml(clip(plan.first_pick.reason, 350)),\n    '',\n    '<b>Top 3</b>',\n  );\n  plan.top_three.forEach((choice, index) => {\n    const issue = issueById.get(choice.identifier);\n    lines.push(\n      `${index + 1}. <a href=\"${escapeHtml(issue.url)}\">${escapeHtml(issue.identifier)}</a> — <b>${escapeHtml(clip(issue.name, 180))}</b>`,\n      `Módulo: ${escapeHtml(clip(issue.module, 100))} · Estado: ${escapeHtml(stateLabels[issue.state] || issue.state)} · Prioridade: ${escapeHtml(priorityLabels[issue.priority] || issue.priority)}`,\n      `Porquê: ${escapeHtml(clip(choice.reason, 320))}`,\n      `Próximo passo: ${escapeHtml(clip(choice.next_step, 320))}`,\n      '',\n    );\n  });\n  if (plan.attention.length) {\n    lines.push('<b>Atenção / acompanhamento</b>');\n    for (const note of plan.attention.slice(0, 4)) lines.push(`• ${escapeHtml(clip(note, 260))}`);\n  }\n  const kept = [];\n  let size = 0;\n  for (const line of lines) {\n    if (size + line.length + 1 > 3850) {\n      kept.push('…');\n      break;\n    }\n    kept.push(line);\n    size += line.length + 1;\n  }\n  return kept.join('\\n').trim();\n}\n\nconst requestItems = $('Prepare OpenAI Request').all();\nreturn $input.all().map((responseItem, index) => {\n  const sourceIndex = pairedIndex(responseItem, index);\n  const requestItem = requestItems[sourceIndex] || requestItems[index];\n  if (!requestItem) throw new Error(`Validate & Format Briefing: missing request item at index ${sourceIndex}`);\n  const source = requestItem.json;\n  const envelope = responseItem.json || {};\n  const status = Number(envelope.statusCode || 0);\n  const body = envelope.body !== undefined ? envelope.body : envelope;\n  let plan;\n  let usedFallback = false;\n  try {\n    if (status < 200 || status >= 300) throw new Error(`HTTP ${status || 'unknown'}`);\n    if (body?.status !== 'completed') throw new Error(`response status ${body?.status || 'unknown'}`);\n    const text = outputText(body);\n    if (!text) throw new Error('empty output_text');\n    plan = validatePlan(JSON.parse(text), source);\n  } catch (error) {\n    usedFallback = true;\n    plan = fallback(source);\n  }\n  return {\n    json: {\n      telegramText: render(source, plan, usedFallback),\n      telegramChatId: source.telegramChatId,\n      usedFallback,\n    },\n    pairedItem: { item: sourceIndex },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        -120
+      ],
+      "id": "cc09850f-a475-454f-a18f-71a73d191c3f",
+      "name": "Validate & Format Briefing"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction escapeHtml(value) {\n  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\nreturn $input.all().map((item, index) => {\n  const { recipient, telegramChatId } = item.json;\n  const text = [\n    `<b>Plano diário DEV — ${escapeHtml(recipient.displayName)}</b>`,\n    escapeHtml(recipient.telegramUsername),\n    '',\n    'Sem tarefas DEV abertas atribuídas neste momento.',\n  ].join('\\n');\n  return { json: { telegramText: text, telegramChatId }, pairedItem: { item: index } };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        180
+      ],
+      "id": "76fa2360-28a9-4f51-abce-9ffc173f3ef0",
+      "name": "Format Empty Briefing"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegramChatId }}",
+        "text": "={{ $json.telegramText }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2880,
+        0
+      ],
+      "id": "d44182b6-1556-4687-977c-2da92f584385",
+      "name": "Send Telegram Briefing",
+      "webhookId": "92ddde0a-bc99-4bd4-9126-41bf6c04499f",
+      "credentials": {
+        "telegramApi": {
+          "id": "PguHngUiurMCpuhe",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nfunction responseRoot(items) {\n  if (!items.length) throw new Error('Prepare Module Requests: Plane returned no modules response item');\n  if (items.length === 1) {\n    const value = items[0].json;\n    if (value && typeof value === 'object' && value.body !== undefined) {\n      const status = Number(value.statusCode || 200);\n      if (status < 200 || status >= 300) throw new Error(`Prepare Module Requests: Plane modules returned HTTP ${status}`);\n      return value.body;\n    }\n    return value;\n  }\n  return items.map(item => item.json);\n}\n\nfunction extractList(root) {\n  if (Array.isArray(root)) return root;\n  if (!root || typeof root !== 'object') {\n    throw new Error('Prepare Module Requests: unrecognized Plane response shape');\n  }\n  for (const key of ['results', 'items', 'data', 'modules']) {\n    if (Array.isArray(root[key])) return root[key];\n  }\n  throw new Error('Prepare Module Requests: Plane response does not contain a recognized list');\n}\n\nfunction hasMore(root, count) {\n  if (!root || Array.isArray(root) || typeof root !== 'object') return count >= 1000;\n  const nextFlag = root.next_page_results;\n  if (nextFlag === true || String(nextFlag).toLowerCase() === 'true') return true;\n  const total = Number(root.total_results ?? root.total_count ?? root.count);\n  if (Number.isFinite(total) && total > count) return true;\n  const currentPage = Number(root.current_page ?? root.page);\n  const totalPages = Number(root.total_pages);\n  if (Number.isFinite(currentPage) && Number.isFinite(totalPages) && currentPage < totalPages) return true;\n  if (typeof root.next === 'string' && root.next.trim()) return true;\n  // Plane can include next_cursor even on the final page. Cursor presence alone\n  // is not evidence that another page exists.\n  return count >= 1000;\n}\n\nfunction idOf(value) {\n  if (value === null || value === undefined) return '';\n  if (typeof value === 'string' || typeof value === 'number') return String(value);\n  if (typeof value !== 'object') return '';\n  return String(value.id || value.uuid || '');\n}\n\nconst root = responseRoot($input.all());\nconst modules = extractList(root);\nif (hasMore(root, modules.length)) {\n  throw new Error('Prepare Module Requests: Plane module page may be truncated at 1000 records; pagination is required before briefing generation');\n}\nif (!modules.length) {\n  return [{ json: { hasModule: false, moduleId: '', moduleName: 'Sem módulo' } }];\n}\nreturn modules.map((module, index) => {\n  const moduleId = idOf(module);\n  if (!moduleId) throw new Error(`Prepare Module Requests: module ${index + 1} has no id`);\n  return {\n    json: {\n      hasModule: true,\n      moduleId,\n      moduleName: String(module.name || module.title || 'Sem módulo').trim() || 'Sem módulo',\n    },\n    // Every module is derived from the single modules response envelope.\n    pairedItem: { item: 0 },\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "id": "b19de1fd-1e83-4d93-82a0-3dc9fc918920",
+      "name": "Prepare Module Requests"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasModule }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        0
+      ],
+      "id": "6e297dda-b0ee-4173-8bd4-f2fa2e64455d",
+      "name": "Has Plane Module?"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://plane.nforensic.site/api/v1/workspaces/{{ $('Init & Validate Config').first().json.workspaceSlug }}/projects/{{ $('Init & Validate Config').first().json.projectId }}/modules/{{ $json.moduleId }}/module-issues/",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "1000"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1100
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.PLANE_API_KEY }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        -160
+      ],
+      "id": "a5575ad9-af96-4a83-95c5-a1aa82e783c8",
+      "name": "List Module Work Items"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "\nreturn $input.all().map((item, index) => ({\n  json: { ...item.json, moduleIssues: [], emptyMembership: true },\n  pairedItem: { item: index },\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        180
+      ],
+      "id": "016e7e59-798d-4981-a892-a110aeb12d4d",
+      "name": "Empty Module Membership"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Weekdays at 08:30": {
+      "main": [
+        [
+          {
+            "node": "Init & Validate Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init & Validate Config": {
+      "main": [
+        [
+          {
+            "node": "List DEV Work Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List DEV Work Items": {
+      "main": [
+        [
+          {
+            "node": "Store Work Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Work Items": {
+      "main": [
+        [
+          {
+            "node": "List DEV Modules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List DEV Modules": {
+      "main": [
+        [
+          {
+            "node": "Prepare Module Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Developer Briefings": {
+      "main": [
+        [
+          {
+            "node": "Has Open Issues?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Open Issues?": {
+      "main": [
+        [
+          {
+            "node": "Prepare OpenAI Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Empty Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare OpenAI Request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Top 3 Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Top 3 Plan": {
+      "main": [
+        [
+          {
+            "node": "Validate & Format Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Format Briefing": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Empty Briefing": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Module Requests": {
+      "main": [
+        [
+          {
+            "node": "Has Plane Module?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Plane Module?": {
+      "main": [
+        [
+          {
+            "node": "List Module Work Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Empty Module Membership",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Module Work Items": {
+      "main": [
+        [
+          {
+            "node": "Prepare Developer Briefings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Empty Module Membership": {
+      "main": [
+        [
+          {
+            "node": "Prepare Developer Briefings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Lisbon"
+  },
+  "versionId": "df031f23-06e4-4650-b7ed-f8366590d505",
+  "meta": {
+    "instanceId": "plane-daily-briefing"
+  },
+  "id": "plane-dev-daily-briefing-01",
+  "tags": []
+}
