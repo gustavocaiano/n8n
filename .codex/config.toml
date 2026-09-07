@@ -1,0 +1,4 @@
+[mcp_servers.n8n-mcp]
+url = "https://nodemation.nforensic.site/mcp-server/http"
+bearer_token_env_var = "N8N_MCP_TOKEN"
+startup_timeout_sec = 30
