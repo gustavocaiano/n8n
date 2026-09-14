@@ -1,0 +1,66 @@
+# Vortex announcements feed — static file server for the shared vortex_feed
+# volume. Rendered by the official nginx image envsubst mechanism into
+# /etc/nginx/conf.d/vortex-announcements.conf.
+#
+# The Basic-auth reader map ($vortex_feed_authorized) is generated separately
+# by /docker-entrypoint.d/25-vortex-readers.sh into 00-vortex-readers.conf,
+# which loads first (alphabetical order, http context).
+#
+# This server block is the default_server for port 80: Nginx Proxy Manager
+# forwards requests with the original Host header (e.g.
+# nodemation.nforensic.site), which matches no server_name, so the feed must
+# be served by the default block. Direct container-to-container requests use
+# Host: vortex-feed and match server_name.
+
+# Challenge header is emitted ONLY on 401 responses: map the auth flag to the
+# realm string, and rely on nginx omitting add_header fields whose value is
+# the empty string (documented add_header behavior).
+map $vortex_feed_authorized $vortex_feed_challenge {
+    0 'Basic realm="${VORTEX_FEED_AUTH_REALM}"';
+    default '';
+}
+
+server {
+    listen 80 default_server;
+    server_name vortex-feed;
+
+    server_tokens off;
+
+    # Exactly one resource exists. alias (not root) because the public path
+    # /vortex/latest.json maps to /srv/feed/public/latest.json on the volume.
+    location = /vortex/latest.json {
+        alias /srv/feed/public/latest.json;
+
+        if ($vortex_feed_authorized = 0) {
+            return 401;
+        }
+
+        # Fresh-volume race: before vortex-publisher has seeded latest.json,
+        # serve the empty-feed document instead of a 404 so NUCs polling from
+        # a brand-new deployment get a spec-valid response. The sidecar seeds
+        # byte-identical content at startup. Auth runs first (the if above),
+        # so this fallback is never reachable unauthenticated.
+        error_page 404 = @vortex_seed;
+
+        add_header WWW-Authenticate $vortex_feed_challenge always;
+        add_header Cache-Control "private, no-cache" always;
+        default_type application/json;
+        etag off;
+        gzip off;
+        # Static files still carry Last-Modified; NUCs must always get the
+        # full body (never a 304), so disable conditional-request handling.
+        if_modified_since off;
+        # Every NUC polls every 30s — don't fill the host disk with access logs.
+        access_log off;
+    }
+
+    location @vortex_seed {
+        default_type application/json;
+        add_header Cache-Control "private, no-cache" always;
+        return 200 '{"notification":null}';
+    }
+
+    location / {
+        return 404;
+    }
+}
