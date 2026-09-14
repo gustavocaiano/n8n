@@ -1,0 +1,233 @@
+{
+  "name": "Vortex Announcements Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vortex-announcements/publish",
+        "responseMode": "responseNode"
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -200,
+        0
+      ],
+      "id": "52c5748b-477b-47d1-8546-5c21a4971e53",
+      "name": "Vortex Publish Webhook",
+      "webhookId": "33449faf-94de-4725-a832-7463c99542d0"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Vortex announcements: auth + idempotency-key + payload validation, and\n// canonical feed-file construction. Fail-closed: every rejection emits\n// {authorized:false, statusCode, responseBody} for the Respond node; success\n// emits {authorized:true, fileString, ...} for the publisher call.\nconst fail = (statusCode, code, message, errors) => {\n  const responseBody = { status: 'error', code: code, message: message };\n  if (errors && errors.length) responseBody.errors = errors;\n  return [{ json: { authorized: false, valid: false, statusCode: statusCode, responseBody: responseBody } }];\n};\n\nconst TOKEN = $env.VORTEX_PUBLISH_TOKEN || '';\nif (!TOKEN) {\n  return fail(500, 'server_misconfigured', 'VORTEX_PUBLISH_TOKEN is not set. Check plane/.env and restart the n8n container.');\n}\n\nconst item = $input.first().json;\nconst headers = item.headers || {};\nconst headerValue = (name) => {\n  const entry = Object.entries(headers).find(([k]) => k.toLowerCase() === name);\n  return entry ? String(entry[1]) : '';\n};\n\n// Constant-time comparison (XOR over the longer length) — no early exit.\nconst timingSafeEqual = (a, b) => {\n  const A = String(a);\n  const B = String(b);\n  const len = Math.max(A.length, B.length);\n  let diff = A.length === B.length ? 0 : 1;\n  for (let i = 0; i < len; i++) {\n    diff |= (A.charCodeAt(i) || 0) ^ (B.charCodeAt(i) || 0);\n  }\n  return diff === 0;\n};\n\nconst token = headerValue('x-vortex-publish-token');\nif (!token || !timingSafeEqual(token, TOKEN)) {\n  return fail(401, 'unauthorized', 'Missing or invalid X-Vortex-Publish-Token header.');\n}\n\nconst idempotencyKey = headerValue('idempotency-key');\nconst UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;\nif (!UUID_RE.test(idempotencyKey)) {\n  return fail(422, 'invalid_idempotency_key', 'Idempotency-Key header must be a UUID.');\n}\n\nlet body = item.body;\nif (typeof body === 'string') {\n  try {\n    body = JSON.parse(body);\n  } catch (e) {\n    return fail(422, 'invalid_json', 'Request body is not valid JSON.');\n  }\n}\nif (!body || typeof body !== 'object' || Array.isArray(body)) {\n  return fail(422, 'invalid_json', 'Request body must be a JSON object.');\n}\n\nconst keys = Object.keys(body);\nif (keys.length !== 1 || keys[0] !== 'notification') {\n  return fail(422, 'invalid_payload', 'Body must contain exactly one top-level key: notification.');\n}\n\nconst n = body.notification;\nif (n === null) {\n  return [{\n    json: {\n      authorized: true, valid: true,\n      idempotencyKey: idempotencyKey, mode: 'clear', notificationId: null,\n      fileString: JSON.stringify({ notification: null }),\n      statusCode: 200, responseBody: null,\n    },\n  }];\n}\nif (typeof n !== 'object' || Array.isArray(n)) {\n  return fail(422, 'invalid_payload', 'notification must be an object or null.');\n}\n\nconst errors = [];\nconst ALLOWED = ['id', 'title', 'body', 'starts_at', 'expires_at'];\nfor (const k of Object.keys(n)) {\n  if (!ALLOWED.includes(k)) errors.push('unknown field: ' + k);\n}\nconst ID_RE = /^[a-zA-Z0-9_-]+$/;\nif (typeof n.id !== 'string' || !ID_RE.test(n.id) || n.id.length > 100) {\n  errors.push('id must match ^[a-zA-Z0-9_-]+$ (max 100 chars)');\n}\nif (typeof n.title !== 'string' || !/\\S/.test(n.title) || n.title.length > 160) {\n  errors.push('title is required (1-160 chars, not blank)');\n}\nif (typeof n.body !== 'string' || !/\\S/.test(n.body) || n.body.length > 4000) {\n  errors.push('body is required (1-4000 chars, not blank)');\n}\n\nconst TS_RE = /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(Z|[+-]\\d{2}:\\d{2})$/;\n// Strict calendar validation: Date.parse accepts impossible dates such as\n// 2099-02-31 and collapses years 0000-0099; range-check every field and\n// round-trip the UTC calendar day instead.\nconst parseTs = (s) => {\n  const m = typeof s === 'string' ? TS_RE.exec(s) : null;\n  if (!m) return null;\n  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);\n  const h = Number(m[4]), mi = Number(m[5]), se = Number(m[6]);\n  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || se > 59) return null;\n  const cal = new Date(Date.UTC(y, mo - 1, d));\n  if (cal.getUTCFullYear() !== y || cal.getUTCMonth() !== mo - 1 || cal.getUTCDate() !== d) return null;\n  let ms = Date.UTC(y, mo - 1, d, h, mi, se);\n  const off = m[7];\n  if (off !== 'Z') {\n    const oh = Number(off.slice(1, 3)), om = Number(off.slice(4, 6));\n    if (oh > 23 || om > 59) return null;\n    ms += (off[0] === '-' ? 1 : -1) * (oh * 60 + om) * 60000;\n  }\n  return ms;\n};\nconst hasStartsAt = n.starts_at !== undefined && n.starts_at !== null;\nconst startsMs = hasStartsAt ? parseTs(n.starts_at) : null;\nif (hasStartsAt && startsMs === null) {\n  errors.push('starts_at must be YYYY-MM-DDTHH:MM:SS with Z or numeric offset (real calendar date)');\n}\nconst expiresMs = parseTs(n.expires_at);\nif (expiresMs === null) {\n  errors.push('expires_at is required: YYYY-MM-DDTHH:MM:SS with Z or numeric offset (real calendar date)');\n}\nif (errors.length) {\n  return fail(422, 'invalid_payload', 'Notification failed validation.', errors);\n}\nif (hasStartsAt && startsMs !== null && expiresMs !== null && expiresMs <= startsMs) {\n  return fail(422, 'invalid_date_range', 'expires_at must be after starts_at.');\n}\n// Expiry-in-the-future (already_expired) is deliberately NOT checked here:\n// the sidecar owns that rule and applies it only to genuinely-new\n// operations, so a retry of a recorded publish replays its recorded 200\n// even after the notification has expired.\n\n// Canonical serialization — exact key order, byte-identical to what the\n// vortex-publisher sidecar will write to latest.json.\nconst file = { id: n.id, title: n.title, body: n.body };\nif (hasStartsAt) file.starts_at = n.starts_at;\nfile.expires_at = n.expires_at;\nconst fileString = JSON.stringify({ notification: file });\nif (Buffer.byteLength(fileString, 'utf8') > 32768) {\n  return fail(422, 'payload_too_large', 'Serialized feed file exceeds 32768 bytes.');\n}\n\nreturn [{\n  json: {\n    authorized: true, valid: true,\n    idempotencyKey: idempotencyKey, mode: 'publish', notificationId: n.id,\n    fileString: fileString,\n    statusCode: 200, responseBody: null,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        0
+      ],
+      "id": "bbd31dd2-d868-4cf4-90e9-3b2212721c90",
+      "name": "Validate Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.authorized }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        280,
+        0
+      ],
+      "id": "7c9bb0d1-36ee-4f34-bd6b-a2ded0e18a58",
+      "name": "Publishable?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://vortex-publisher:8085/publish",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.fileString }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Publisher-Token",
+              "value": "={{ $env.VORTEX_SIDECAR_TOKEN }}"
+            },
+            {
+              "name": "X-Idempotency-Key",
+              "value": "={{ $json.idempotencyKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        520,
+        -120
+      ],
+      "id": "d6bf700b-e55d-49ac-8267-508d3ab8c88b",
+      "name": "Call Publisher"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Map the vortex-publisher sidecar's full HTTP response to webhook response\n// fields. Call Publisher runs with neverError + fullResponse, so every HTTP\n// response arrives as {statusCode, body, headers}. Network-level failures\n// throw in that node and surface as n8n's default 500 — intentionally.\nconst item = $input.first().json;\nconst status = Number(item.statusCode);\nlet responseBody = item.body;\n\n// Body may be a raw string if the sidecar ever returns non-JSON.\nif (typeof responseBody === 'string') {\n  try {\n    responseBody = JSON.parse(responseBody);\n  } catch (e) {\n    responseBody = null;\n  }\n}\n\nconst FALLBACK = {\n  401: 'unauthorized',\n  409: 'idempotency_conflict',\n  413: 'payload_too_large',\n  422: 'invalid_payload',\n  503: 'publish_busy',\n};\n\nif (status === 200) {\n  const s = responseBody && typeof responseBody === 'object' ? responseBody.status : null;\n  if (s !== 'published' && s !== 'cleared') {\n    return [{\n      json: {\n        statusCode: 500,\n        responseBody: { status: 'error', code: 'publish_failed', message: 'Publisher returned an unexpected 200 response.' },\n      },\n    }];\n  }\n} else if (!responseBody || typeof responseBody !== 'object' || !responseBody.code) {\n  const code = FALLBACK[status] || 'publish_failed';\n  responseBody = { status: 'error', code: code, message: 'Publisher returned HTTP ' + status + '.' };\n}\n\nreturn [{ json: { statusCode: status, responseBody: responseBody } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -120
+      ],
+      "id": "4635a893-0d82-4f1a-a39b-ca5e5aba70fc",
+      "name": "Map Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.responseBody }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1000,
+        -20
+      ],
+      "id": "cd2d822d-dc6f-4cb6-a94d-0545f0e42afa",
+      "name": "Respond"
+    },
+    {
+      "parameters": {
+        "content": "## Vortex Announcements Publisher\nReceives authenticated publish/cancel requests from Abilio and atomically replaces the feed served at https://nodemation.nforensic.site/vortex/latest.json via the vortex-publisher sidecar (plane/compose.yml).\n\n**Env vars (plane/.env):** VORTEX_PUBLISH_TOKEN — Abilio webhook token (X-Vortex-Publish-Token). VORTEX_SIDECAR_TOKEN — n8n-to-sidecar token (X-Publisher-Token).\n\nFails closed: missing env vars yield 500 server_misconfigured. This workflow never writes files itself — the sidecar owns the feed volume and provides idempotency and atomic replacement. Expiry (already_expired) is enforced by the sidecar for new operations only — replays of recorded keys return their recorded response.",
+        "color": 4,
+        "width": 1500,
+        "height": 320
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -250,
+        -170
+      ],
+      "id": "7913d077-d7e0-4049-b754-381e43b4f446",
+      "name": "Sticky Note 8a6d340a"
+    }
+  ],
+  "connections": {
+    "Vortex Publish Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Publishable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publishable?": {
+      "main": [
+        [
+          {
+            "node": "Call Publisher",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Publisher": {
+      "main": [
+        [
+          {
+            "node": "Map Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Lisbon",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "executionTimeout": 60
+  },
+  "versionId": "863f0467-4ec6-4867-8598-c27ae054d091",
+  "meta": {
+    "instanceId": "vortex-announcements",
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "id": "vortex-ann-pub-01",
+  "tags": []
+}

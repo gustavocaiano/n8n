@@ -23,6 +23,13 @@ services:
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - TZ=${GENERIC_TIMEZONE}
       - N8N_RESTRICT_FILE_ACCESS_TO=/files
+      # Vortex announcements (see files/vortex-announcements/README.md):
+      # - VORTEX_PUBLISH_TOKEN: webhook auth token, sent by Abilio as the
+      #   X-Vortex-Publish-Token header and validated by the workflow
+      # - VORTEX_SIDECAR_TOKEN: token n8n sends to vortex-publisher as
+      #   X-Publisher-Token
+      - VORTEX_PUBLISH_TOKEN=${VORTEX_PUBLISH_TOKEN}
+      - VORTEX_SIDECAR_TOKEN=${VORTEX_SIDECAR_TOKEN}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local-files:/files
@@ -37,6 +44,49 @@ services:
       - 8.8.8.8
       - 1.1.1.1
 
+  # ─── Vortex announcements ─────────────────────────────────────────────────
+  # Publisher sidecar: owns the vortex_feed volume and performs atomic feed
+  # replacements for the n8n workflow "Vortex Announcements Publisher".
+  # No host ports — reachable only inside the network as vortex-publisher:8085.
+  vortex-publisher:
+    image: node:22-alpine
+    container_name: vortex-publisher
+    restart: always
+    environment:
+      - VORTEX_SIDECAR_TOKEN=${VORTEX_SIDECAR_TOKEN}
+    volumes:
+      - vortex_feed:/data
+      - ./vortex-announcements/publisher:/app:ro
+    entrypoint: ['/bin/sh', '/app/entrypoint.sh']
+    networks:
+      - nginx-proxy-network
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8085/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Static feed server: nginx serves latest.json straight off the shared
+  # volume. In NPM, add a custom location /vortex on the n8n proxy host
+  # forwarding to http://vortex-feed:80 — no path suffix (the public path
+  # /vortex/latest.json must reach the container unchanged).
+  vortex-feed:
+    image: nginx:1.27-alpine
+    container_name: vortex-feed
+    restart: always
+    environment:
+      # Whitespace-separated user:password pairs for HTTP Basic auth, one
+      # per Vortex NUC. Empty = public feed.
+      - VORTEX_FEED_READERS=${VORTEX_FEED_READERS}
+      - VORTEX_FEED_AUTH_REALM=${VORTEX_FEED_AUTH_REALM:-Vortex announcements}
+    volumes:
+      - vortex_feed:/srv/feed:ro
+      - ./vortex-announcements/nginx/templates:/etc/nginx/templates:ro
+      - ./vortex-announcements/nginx/entrypoint/25-vortex-readers.sh:/docker-entrypoint.d/25-vortex-readers.sh:ro
+    networks:
+      - nginx-proxy-network
+
 networks:
   nginx-proxy-network:
     external: true
@@ -44,3 +94,5 @@ networks:
 
 volumes:
   n8n_data:
+  # Owned by vortex-publisher; mounted read-only into vortex-feed.
+  vortex_feed:
