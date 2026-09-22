@@ -1,5 +1,6 @@
 .DS_Store
 .slim/deepwork/
+.slim/debug/
 .env
 .env.*
 !.env.example
