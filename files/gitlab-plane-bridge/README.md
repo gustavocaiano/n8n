@@ -121,6 +121,44 @@ The real-time workflow uses a generic n8n Webhook trigger (not GitLab's auto-reg
 - **Approval actions are no-ops.** MR webhook actions `approval`, `approved`, `unapproval`, and `unapproved` are routed to the FALSE branch of `MR Action?` and `Normalize MR (direct)` returns `[]` for them — no state change, no comment.
 - **Backstop** only applies strong current facts from commit polling: bare mention → In Progress, `reopens` → In Progress. It does not emit `merged` or `close-in-mr` actions (those require MR lifecycle events, which only the real-time webhook receives). Comments still post for protected states; only the state change is suppressed.
 
+### Plane read-retry barrier (real-time workflow)
+
+`Get Work Item` reads are wrapped in a **whole-read-batch barrier** so a Plane
+rate-limit (HTTP 429) never releases a partial set of issue updates. The
+attempt counter travels in item JSON (never workflow staticData), so it
+survives the Wait round-trip.
+
+```
+Reducer
+  → Prepare Lookup Attempt   (fresh decisions, attempt 1 — or rebuild the exact
+                              same batch from the retry summary, attempt 2/3)
+  → Get Work Item            (same URL + env auth; fullResponse + neverError;
+                              native retry off; transport errors still stop the run)
+  → Classify Lookup Batch    (recovers each response's prepared request via
+                              itemMatching — no numeric fallback)
+  → Lookup Batch Ready?      (IF)
+       TRUE  → Unwrap Lookup Batch → Apply Guards (once, whole batch, fresh
+               FINAL-round work items + embedded original decision)
+       FALSE → Wait for Plane Retry → Prepare Lookup Attempt (re-runs the
+               ENTIRE GET batch)
+```
+
+- **429-only policy.** Any other HTTP status (401/403/404/500/5xx) or a
+  transport error is permanent: the run throws before any downstream item is
+  released. 429 is the only retryable status.
+- **3 attempts TOTAL** (initial + +10 min + +20 min). The 3rd consecutive 429
+  throws — nothing downstream has run by then.
+- **Delay = max(600 s, max valid `Retry-After`)** across all 429s of the batch,
+  seconds or HTTP-date — 600 s is the **minimum (floor), never a cap**: long
+  server-provided waits are honored; malformed/missing/non-positive falls back
+  to 600 s.
+- **Single release.** Downstream side effects (comments, state changes,
+  linkbacks, assignment) run exactly once, only after EVERY read in the batch
+  has succeeded, using only the final round's work items. Changed Plane state
+  between rounds is re-checked by the guards as usual.
+- The backstop workflow is unaffected (its own 15-min poll + cursor overlap
+  remains the safety net).
+
 ### Keyword conventions
 
 | Keyword | Action |
@@ -167,6 +205,20 @@ The backstop is a **bounded-window** poller, not an open-ended "since" scan.
 
 ## Testing
 
+### Offline barrier tests (node:test, dependency-free)
+
+`node --test files/gitlab-plane-bridge/tests/*.test.mjs` runs tests that execute
+the ACTUAL `jsCode` stored in `workflow-1-realtime.json` inside a vm sandbox
+(emulating `$input` / `$env` / `$('Node').itemMatching()`), plus structural
+graph checks (25 live nodes + IDs preserved, barrier wiring, side-effect
+branches, backstop untouched). Covered: 429→200 mixed ordering in both
+positions, 3-attempt budget (exactly 2 waits, then throw), permanent
+401/403/404/500 with no wait and no release, Retry-After seconds/HTTP-date/
+malformed/missing/floor-600 (long server waits honored)/max-across-batch, single whole-batch release,
+fresh FINAL-round work items driving the guards (Done/Cancelled protection),
+original-decision mapping with no numeric fallback, context-missing throws,
+and error messages that never leak body keys or auth headers.
+
 ### Real-time (workflow-1)
 
 1. Create a Plane issue `DEV-1` in **Todo** state.
@@ -211,7 +263,14 @@ GitLab Webhook (Push + MR events)
        TRUE:  Get MR Commits → Normalize MR (with commits) — scans description + all commits
        FALSE: Normalize MR (direct) — returns [] for non-merge/close actions
   → Reducer (group by issue, apply precedence + guards)
-  → Plane: Get Work Item by identifier (DEV-15 → UUID)
+  → Plane lookup retry barrier:
+       Prepare Lookup Attempt → Plane: Get Work Item by identifier (DEV-15 → UUID,
+         fullResponse + neverError) → Classify Lookup Batch → Lookup Batch Ready?
+         all success → Unwrap Lookup Batch
+         any 429 (attempt < 3) → Wait for Plane Retry
+                                  (max(600 s, max Retry-After); long waits honored)
+                                  → re-run the entire GET batch
+         permanent failure / 3rd 429 → throw (no downstream release)
   → Apply Guards (re-check using current Plane state; throw on malformed data)
   → Plane: Create Comment (full response + neverError, external_id dedup → 409 on duplicate)
        → Validate Comment Result (accept 2xx/409, else throw)
