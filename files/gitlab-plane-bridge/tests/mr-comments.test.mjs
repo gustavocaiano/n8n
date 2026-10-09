@@ -17,6 +17,22 @@ const normalizeNote = jsCodeOf(wf, 'Normalize MR Note');
 const lifecycle = jsCodeOf(wf, 'Normalize MR (with commits)');
 const reducer = jsCodeOf(wf, 'Reducer');
 const guards = jsCodeOf(wf, 'Apply Guards');
+const linkback = jsCodeOf(wf, 'Prepare GitLab Linkback');
+
+test('MR linkback skips unchanged descriptions to prevent webhook feedback loops', () => {
+  const item = { issueKey: 'DEV-224', workItemUrl: 'https://plane.example/DEV-224/', mrIid: 234, gitlabProjectId: '2601', commitShas: [] };
+  for (const mrDescription of ['Summary without issue references', 'closes [DEV-224](https://plane.example/DEV-224/)']) {
+    assert.equal(runCodeNode(linkback, { items: [{ json: { ...item, mrDescription } }] }).length, 0);
+  }
+});
+
+test('MR Note? boolean operands are valid under strict n8n type validation', () => {
+  const filter = wf.nodes.find(node => node.name === 'MR Note?');
+  const conditions = filter.parameters.conditions.conditions;
+  for (const condition of conditions.filter(value => value.operator.type === 'boolean')) {
+    assert.equal(typeof condition.rightValue, 'boolean', 'n8n validates both operands, even for unary is-true checks');
+  }
+});
 
 // --- payload builders --------------------------------------------------------
 
