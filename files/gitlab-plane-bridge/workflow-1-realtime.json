@@ -66,6 +66,29 @@
               },
               "renameOutput": true,
               "outputKey": "mr"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.object_kind }}",
+                    "rightValue": "note",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "note"
             }
           ]
         },
@@ -165,7 +188,8 @@
       "position": [
         896,
         96
-      ]
+      ],
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -405,7 +429,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst cfg = JSON.parse($env.PLANE_PROJECT_DEV);\nconst issueRe = /(?<![A-Z0-9])([A-Z][A-Z]+)-?(\\d+)(?![A-Z0-9-])/g;\nconst closeRe = /\\b(closes|fixes|resolves)\\s+\\[?([A-Z][A-Z]+)-?(\\d+)\\b\\]?(?:\\([^)]*\\))?/g;\nconst reopenRe = /\\breopens\\s+\\[?([A-Z][A-Z]+)-?(\\d+)\\b\\]?(?:\\([^)]*\\))?/g;\n// Branches of record: MRs merged into any of these count as shipped (→ Done).\nconst EXTRA_VALIDATED_BRANCHES = ['dev'];\n\nfunction refs(text = '') {\n  const out = [];\n  const seen = new Set();\n  let match;\n  closeRe.lastIndex = 0;\n  while ((match = closeRe.exec(text))) {\n    const key = `${match[2]}-${match[3]}`;\n    if (!seen.has(`${key}:close`)) { out.push({ issueKey: key, action: 'close' }); seen.add(`${key}:close`); }\n  }\n  reopenRe.lastIndex = 0;\n  while ((match = reopenRe.exec(text))) {\n    const key = `${match[1]}-${match[2]}`;\n    if (!seen.has(`${key}:reopen`)) { out.push({ issueKey: key, action: 'reopen' }); seen.add(`${key}:reopen`); }\n  }\n  issueRe.lastIndex = 0;\n  while ((match = issueRe.exec(text))) {\n    const key = `${match[1]}-${match[2]}`;\n    if (![`${key}:close`, `${key}:reopen`, `${key}:mention`].some(value => seen.has(value))) {\n      out.push({ issueKey: key, action: 'mention' });\n      seen.add(`${key}:mention`);\n    }\n  }\n  return out;\n}\n\nconst payload = $('MR Action?').first().json;\nconst attrs = payload.object_attributes || {};\nconst action = attrs.action;\nif (!['open', 'update', 'reopen', 'merge', 'close'].includes(action)) return [];\n\nconst commits = $input.all().flatMap(item => Array.isArray(item.json) ? item.json : [item.json]);\nconst allRefs = refs(attrs.description || '');\nfor (const commit of commits) allRefs.push(...refs(commit?.message || commit?.title || ''));\n\nconst targetBranch = attrs.target_branch || '';\nconst defaultBranch = payload.project?.default_branch || attrs.target?.default_branch || '';\nconst mergedToValidated = action === 'merge' && (targetBranch === defaultBranch || EXTRA_VALIDATED_BRANCHES.includes(targetBranch));\nconst metadata = {\n  mrIid: attrs.iid,\n  mrUrl: attrs.url || '',\n  mrTitle: attrs.title || '',\n  sourceBranch: attrs.source_branch || '',\n  targetBranch,\n  mrDescription: attrs.description || '',\n  gitlabProjectId: String(payload.project?.id || attrs.target_project_id || ''),\n  source: 'mr',\n  planeProjectUuid: cfg.uuid,\n  actorEmail: payload.user?.email || '',\n  actorUsername: payload.user?.username || '',\n  actorName: payload.user?.name || '',\n};\n\nconst out = [];\nconst seen = new Set();\nfor (const ref of allRefs) {\n  let mapped;\n  if (action === 'close') mapped = 'mr-closed';\n  else if (action === 'merge') {\n    if (ref.action === 'close') mapped = mergedToValidated ? 'merged' : 'close-in-mr';\n    else if (ref.action === 'reopen') mapped = 'reopen';\n    else mapped = 'mention';\n  } else {\n    if (ref.action === 'close') mapped = 'close-in-mr';\n    else if (ref.action === 'reopen') mapped = 'reopen';\n    else mapped = 'mr-open';\n  }\n  const dedupKey = action === 'close' ? ref.issueKey : `${ref.issueKey}:${mapped}`;\n  if (seen.has(dedupKey)) continue;\n  seen.add(dedupKey);\n  out.push({ json: { issueKey: ref.issueKey, action: mapped, ...metadata, ...(action === 'merge' ? { mergeCommitSha: attrs.merge_commit_sha || '' } : {}) } });\n}\nreturn out;\n"
+        "jsCode": "\nconst cfg = JSON.parse($env.PLANE_PROJECT_DEV);\nconst issueRe = /(?<![A-Z0-9])([A-Z][A-Z]+)-?(\\d+)(?![A-Z0-9-])/g;\nconst closeRe = /\\b(closes|fixes|resolves)\\s+\\[?([A-Z][A-Z]+)-?(\\d+)\\b\\]?(?:\\([^)]*\\))?/g;\nconst reopenRe = /\\breopens\\s+\\[?([A-Z][A-Z]+)-?(\\d+)\\b\\]?(?:\\([^)]*\\))?/g;\n// Branches of record: MRs merged into any of these count as shipped (→ Done).\nconst EXTRA_VALIDATED_BRANCHES = ['dev'];\n\nfunction refs(text = '') {\n  const out = [];\n  const seen = new Set();\n  let match;\n  closeRe.lastIndex = 0;\n  while ((match = closeRe.exec(text))) {\n    const key = `${match[2]}-${match[3]}`;\n    if (!seen.has(`${key}:close`)) { out.push({ issueKey: key, action: 'close' }); seen.add(`${key}:close`); }\n  }\n  reopenRe.lastIndex = 0;\n  while ((match = reopenRe.exec(text))) {\n    const key = `${match[1]}-${match[2]}`;\n    if (!seen.has(`${key}:reopen`)) { out.push({ issueKey: key, action: 'reopen' }); seen.add(`${key}:reopen`); }\n  }\n  issueRe.lastIndex = 0;\n  while ((match = issueRe.exec(text))) {\n    const key = `${match[1]}-${match[2]}`;\n    if (![`${key}:close`, `${key}:reopen`, `${key}:mention`].some(value => seen.has(value))) {\n      out.push({ issueKey: key, action: 'mention' });\n      seen.add(`${key}:mention`);\n    }\n  }\n  return out;\n}\n\nconst payload = $('MR Action?').first().json;\nconst attrs = payload.object_attributes || {};\nconst action = attrs.action;\nif (!['open', 'update', 'reopen', 'merge', 'close'].includes(action)) return [];\n\n// Combined sources, single sequential upstream path:\n//  - commits from the Get MR Commits node data (never $input — input here is\n//    filtered MR-note messages only),\n//  - comment bodies from $input as { message } items (an MR with no human\n//    comments degrades to one empty sentinel message, which matches nothing),\n//  - the description scanned exactly ONCE, here from the webhook payload.\nconst commits = $('Get MR Commits').all().flatMap(item => Array.isArray(item.json) ? item.json : [item.json]);\nconst allRefs = refs(attrs.description || '');\nfor (const commit of commits) allRefs.push(...refs(commit?.message || commit?.title || ''));\nfor (const noteItem of $input.all()) {\n  const message = noteItem.json && typeof noteItem.json.message === 'string' ? noteItem.json.message : '';\n  allRefs.push(...refs(message));\n}\n\nconst targetBranch = attrs.target_branch || '';\nconst defaultBranch = payload.project?.default_branch || attrs.target?.default_branch || '';\nconst mergedToValidated = action === 'merge' && (targetBranch === defaultBranch || EXTRA_VALIDATED_BRANCHES.includes(targetBranch));\nconst metadata = {\n  mrIid: attrs.iid,\n  mrUrl: attrs.url || '',\n  mrTitle: attrs.title || '',\n  sourceBranch: attrs.source_branch || '',\n  targetBranch,\n  mrDescription: attrs.description || '',\n  gitlabProjectId: String(payload.project?.id || attrs.target_project_id || ''),\n  source: 'mr',\n  planeProjectUuid: cfg.uuid,\n  actorEmail: payload.user?.email || '',\n  actorUsername: payload.user?.username || '',\n  actorName: payload.user?.name || '',\n};\n\nconst out = [];\nconst seen = new Set();\nfor (const ref of allRefs) {\n  let mapped;\n  if (action === 'close') mapped = 'mr-closed';\n  else if (action === 'merge') {\n    if (ref.action === 'close') mapped = mergedToValidated ? 'merged' : 'close-in-mr';\n    else if (ref.action === 'reopen') mapped = 'reopen';\n    else mapped = 'mention';\n  } else {\n    if (ref.action === 'close') mapped = 'close-in-mr';\n    else if (ref.action === 'reopen') mapped = 'reopen';\n    else mapped = 'mr-open';\n  }\n  const dedupKey = action === 'close' ? ref.issueKey : `${ref.issueKey}:${mapped}`;\n  if (seen.has(dedupKey)) continue;\n  seen.add(dedupKey);\n  out.push({ json: { issueKey: ref.issueKey, action: mapped, ...metadata, ...(action === 'merge' ? { mergeCommitSha: attrs.merge_commit_sha || '' } : {}) } });\n}\nreturn out;\n"
       },
       "id": "a8146573-0075-40f7-956b-e4ec19d8a0fa",
       "name": "Normalize MR (with commits)",
@@ -714,6 +738,134 @@
         "unit": "seconds"
       },
       "id": "b22bfdb4-605a-4c68-ad83-2c97e4ae7174"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.object_attributes || {}).noteable_type || '' }}",
+              "rightValue": "MergeRequest",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ !$json.object_attributes.action || ['create','update'].includes($json.object_attributes.action) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            },
+            {
+              "leftValue": "={{ ($json.object_attributes || {}).system !== true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "294ac709-d02e-4c69-a509-bddc06029815",
+      "name": "MR Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://gitlab.pdmfc.com/api/v4/projects/{{ $('MR Action?').first().json.project.id }}/merge_requests/{{ $('MR Action?').first().json.object_attributes.iid }}/notes",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "PRIVATE-TOKEN",
+              "value": "={{ $env.GITLAB_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !Array.isArray($response.body) || $response.body.length < 100 }}",
+              "limitPagesFetched": false,
+              "requestInterval": 0
+            }
+          }
+        }
+      },
+      "id": "9040d610-e971-4eb8-ad0e-8f4639ffab43",
+      "name": "Get MR Notes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        240
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter MR Notes — keep only HUMAN notes from the paginated GitLab notes API\n// (GET /projects/:id/merge_requests/:iid/notes). System notes (state changes,\n// approvals, assignments) carry no user intent and are dropped. Surviving\n// notes are reshaped into { message } items so Normalize MR (with commits)\n// scans them exactly like commit messages.\n// Failure policy: a note object WITH fields but no body, or a non-object\n// page element, throws (safe failure) — the run stops BEFORE Reducer/guards,\n// so a partial or silently-truncated scan is never released downstream.\n// The ONLY tolerated non-note input is the known empty placeholder emitted by\n// Get MR Notes' alwaysOutputData ({} when the notes response was empty).\n// When no human notes remain, exactly one empty sentinel message is emitted so\n// the normalizer still runs and scans the description/commits.\nconst notes = [];\nfor (const page of $input.all()) {\n  const j = page && page.json;\n  if (Array.isArray(j)) notes.push(...j);\n  else notes.push(j);\n}\nconst out = [];\nfor (let i = 0; i < notes.length; i++) {\n  const n = notes[i];\n  if (n === null || typeof n !== 'object' || Array.isArray(n)) {\n    throw new Error(`Filter MR Notes: unexpected non-object note at index ${i}`);\n  }\n  if (Object.keys(n).length === 0) continue; // known empty placeholder — harmless\n  if (typeof n.body !== 'string') {\n    throw new Error(`Filter MR Notes: note at index ${i} has no body (unexpected GitLab notes API shape)`);\n  }\n  if (n.system === true) continue;\n  out.push({ json: { message: n.body } });\n}\nif (out.length === 0) return [{ json: { message: '' } }];\nreturn out;\n"
+      },
+      "id": "eb5770bc-6c63-42de-9d64-374bfecd6839",
+      "name": "Filter MR Notes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize MR Note — note webhooks on merge requests (human comments only).\n// Same keyword semantics as the MR lifecycle path: closes/fixes/resolves,\n// reopens, bare mention — markdown-link-aware, mixed-case rejected, the MR\n// title is NEVER parsed. Mapping depends on the MR's CURRENT state:\n//   opened  -> close: close-in-mr (In Review) | bare: mr-open | reopen\n//   merged  -> close: merged (Done when target is default/dev, else close-in-mr)\n//              | bare: mention | reopen\n//   closed  -> close: mr-closed (reset, guarded) | bare: mention | reopen\n// MR notes only, system notes never, non-create/update actions never (the\n// \"MR Note?\" IF filters these; re-checked defensively here). A missing action\n// field (older GitLab payloads) is treated as create.\nconst cfg = JSON.parse($env.PLANE_PROJECT_DEV);\nconst issueRe = /(?<![A-Z0-9])([A-Z][A-Z]+)-?(\\d+)(?![A-Z0-9-])/g;\nconst closeRe = /\\b(closes|fixes|resolves)\\s+\\[?([A-Z][A-Z]+)-?(\\d+)\\b\\]?(?:\\([^)]*\\))?/g;\nconst reopenRe = /\\breopens\\s+\\[?([A-Z][A-Z]+)-?(\\d+)\\b\\]?(?:\\([^)]*\\))?/g;\n// Branches of record: MRs merged into any of these count as shipped (→ Done).\nconst EXTRA_VALIDATED_BRANCHES = ['dev'];\nfunction refs(text = '') {\n  const out = [], seen = new Set(); let match;\n  closeRe.lastIndex = 0; while ((match = closeRe.exec(text))) { const key = `${match[2]}-${match[3]}`; if (!seen.has(`${key}:close`)) { out.push({ issueKey:key, action:'close' }); seen.add(`${key}:close`); } }\n  reopenRe.lastIndex = 0; while ((match = reopenRe.exec(text))) { const key = `${match[1]}-${match[2]}`; if (!seen.has(`${key}:reopen`)) { out.push({ issueKey:key, action:'reopen' }); seen.add(`${key}:reopen`); } }\n  issueRe.lastIndex = 0; while ((match = issueRe.exec(text))) { const key = `${match[1]}-${match[2]}`; if (![`${key}:close`,`${key}:reopen`,`${key}:mention`].some(value => seen.has(value))) { out.push({ issueKey:key, action:'mention' }); seen.add(`${key}:mention`); } }\n  return out;\n}\nconst payload = $input.first().json;\nconst note = payload.object_attributes || {};\nconst mr = payload.merge_request || {};\nif ((note.noteable_type || '') !== 'MergeRequest') return [];\nif (note.system === true) return [];\nif (note.action && !['create', 'update'].includes(note.action)) return [];\nconst state = String(mr.state || '').toLowerCase();\nconst targetBranch = mr.target_branch || '';\nconst defaultBranch = (payload.project && payload.project.default_branch) || '';\nlet closeAction, bareAction;\nif (state === 'merged') {\n  closeAction = (targetBranch === defaultBranch || EXTRA_VALIDATED_BRANCHES.includes(targetBranch)) ? 'merged' : 'close-in-mr';\n  bareAction = 'mention';\n} else if (state === 'closed') {\n  closeAction = 'mr-closed';\n  bareAction = 'mention';\n} else {\n  closeAction = 'close-in-mr';\n  bareAction = 'mr-open';\n}\nconst metadata = {\n  mrIid: mr.iid,\n  mrUrl: mr.url || '',\n  mrTitle: mr.title || '',\n  mrDescription: mr.description || '',\n  // Per GitLab docs, the MR entity inside note payloads carries no project_id:\n  // resolve from the payload project, falling back to the note's own\n  // object_attributes.project_id. The MR's own merge_request.iid — never\n  // noteable_id — identifies the merge request.\n  gitlabProjectId: String((payload.project && payload.project.id) || note.project_id || ''),\n  source: 'mr',\n  planeProjectUuid: cfg.uuid,\n  actorEmail: (payload.user && payload.user.email) || '',\n  actorUsername: (payload.user && payload.user.username) || '',\n  actorName: (payload.user && payload.user.name) || '',\n};\nconst out = [];\nconst seen = new Set();\nfor (const ref of refs(note.note || '')) {\n  const mapped = ref.action === 'close' ? closeAction : (ref.action === 'reopen' ? 'reopen' : bareAction);\n  const dedupKey = `${ref.issueKey}:${mapped}`;\n  if (seen.has(dedupKey)) continue;\n  seen.add(dedupKey);\n  out.push({ json: { issueKey: ref.issueKey, action: mapped, ...metadata } });\n}\nreturn out;\n"
+      },
+      "id": "aaa2b155-3e25-468b-907b-f538ce25c476",
+      "name": "Normalize MR Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        464
+      ]
     }
   ],
   "pinData": {},
@@ -755,6 +907,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "MR Note?",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -780,7 +939,7 @@
       "main": [
         [
           {
-            "node": "Normalize MR (with commits)",
+            "node": "Get MR Notes",
             "type": "main",
             "index": 0
           }
@@ -1030,6 +1189,51 @@
         [
           {
             "node": "Prepare Lookup Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get MR Notes": {
+      "main": [
+        [
+          {
+            "node": "Filter MR Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter MR Notes": {
+      "main": [
+        [
+          {
+            "node": "Normalize MR (with commits)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MR Note?": {
+      "main": [
+        [
+          {
+            "node": "Normalize MR Note",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Normalize MR Note": {
+      "main": [
+        [
+          {
+            "node": "Reducer",
             "type": "main",
             "index": 0
           }

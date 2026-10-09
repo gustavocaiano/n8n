@@ -159,6 +159,11 @@ export const BASELINE_25_NODES = [
   'Prepare GitLab Linkback', 'Validate Comment Result', ...LIVE_ONLY_NODES,
 ];
 
+/** MR-comment support nodes (note-event routing + paginated MR notes fetch). */
+export const MR_COMMENT_NODES = [
+  'MR Note?', 'Get MR Notes', 'Filter MR Notes', 'Normalize MR Note',
+];
+
 /** Node IDs that must be preserved from the live workflow (sample of critical ones). */
 export const PRESERVED_IDS = {
   'GitLab Webhook': 'f9a9faa8-7e84-45e5-90c5-683215ada8c5',
@@ -186,4 +191,9 @@ export const PRESERVED_IDS = {
   'Get Members': '79abbd70-4c1c-4a79-88bb-93e95353bf09',
   'Resolve Assignee': 'f5a42d7e-863b-4a59-b5eb-25a4c758c1c7',
   'Assign Issue': '68d9a5fc-54ed-4d42-b6d9-ce95ae502a59',
+  // MR-comment support nodes (fresh IDs assigned when they were added)
+  'MR Note?': '294ac709-d02e-4c69-a509-bddc06029815',
+  'Get MR Notes': '9040d610-e971-4eb8-ad0e-8f4639ffab43',
+  'Filter MR Notes': 'eb5770bc-6c63-42de-9d64-374bfecd6839',
+  'Normalize MR Note': 'aaa2b155-3e25-468b-907b-f538ce25c476',
 };
