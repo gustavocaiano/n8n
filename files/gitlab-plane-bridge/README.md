@@ -4,6 +4,8 @@ Makes the self-hosted Plane issue tracker (`plane.nforensic.site`) behave like
 GitLab/GitHub's native issue tracker. Mentioning `DEV-15` in a commit posts a
 Plane comment and advances the issue state. `closes DEV-15` moves it through
 review to done. MR lifecycle events sync state. `reopens DEV-15` reverts done.
+The same keywords also work in **human MR comments** (`closes DEV-240` posted
+as a merge request note closes the issue exactly like a description reference).
 
 ## Architecture
 
@@ -11,7 +13,7 @@ Two n8n workflows:
 
 | Workflow | File | Trigger | Purpose |
 |---|---|---|---|
-| Real-time | `workflow-1-realtime.json` | GitLab webhook (Push + Merge Request) | Event-driven: processes commits and MR events as they happen |
+| Real-time | `workflow-1-realtime.json` | GitLab webhook (Push + Merge Request + Merge Request comments) | Event-driven: processes commits, MR events and MR comments as they happen |
 | Backstop | `workflow-2-backstop.json` | Schedule (every 15 min) | Safety net: polls the GitLab commits API in a bounded time window for anything the webhook missed (>20-commit pushes, webhook delivery failures, >3-branch pushes). Paginates up to 20 pages × 100 commits per project per poll. |
 
 Both workflows share the same reducer logic and Plane API calls. The Plane
@@ -88,7 +90,7 @@ credential dropdowns to wire after import.
 
 The real-time workflow uses a generic n8n Webhook trigger (not GitLab's auto-registering trigger), so you register the webhook manually in **each** GitLab repo:
 
-1. In **each** GitLab repo: Settings → Webhooks → add URL `{YOUR_N8N_URL}/webhook/gitlab-plane-bridge`, set the **Secret Token** to the same value you put in the `WEBHOOK_SECRET` env var, and check **Push events** + **Merge request events**.
+1. In **each** GitLab repo: Settings → Webhooks → add URL `{YOUR_N8N_URL}/webhook/gitlab-plane-bridge`, set the **Secret Token** to the same value you put in the `WEBHOOK_SECRET` env var, and check **Push events** + **Merge request events** + **Note events** (comments). MR comment refs are processed through the same webhook path and secret as push/MR events — no extra webhook or credential is needed.
 2. To add a new repo later: just add it to the `/novaforensic` GitLab group. The backstop auto-discovers it on the next poll cycle — no config change needed. For WF1, register its webhook (same URL + secret). All repos resolve issues to the same DEV project via the `DEV-NN` regex.
 
 ## State machine
@@ -107,11 +109,95 @@ The real-time workflow uses a generic n8n Webhook trigger (not GitLab's auto-reg
 | `closes DEV-15` in MR description or commits | action=merge, target ≠ default | → **In Review** (close-in-mr, not Done) | comment |
 | Bare `DEV-15` in MR description or commits | action=merge | Todo/Backlog → **In Progress** (mention) | comment |
 | MR closed without merge | action=close, guarded | In Progress/In Review → **Todo** (only if no other open MR refs it) | comment (every discovered issue ref → mr-closed) |
+| `closes DEV-15` in a **human MR comment** | MR open (state `opened`) | Todo/Backlog/In Progress → **In Review** | comment (close-in-mr) |
+| `closes DEV-15` in a human MR comment | MR already **merged**, target = default or `dev` | any non-Cancelled → **Done** | comment (merged) |
+| `closes DEV-15` in a human MR comment | MR already merged, target ≠ default/`dev` | → **In Review** (close-in-mr) | comment |
+| `closes DEV-15` in a human MR comment | MR already closed **without merge** | In Progress/In Review → **Todo** (guarded) | comment (mr-closed) |
+| Bare `DEV-15` in a human MR comment | MR open | Todo/Backlog → **In Progress** (mr-open, never a closure) | comment |
+| `reopens DEV-15` in a human MR comment | any MR state | Done → **In Progress** | comment |
 | MR approval / approved / unapproval / unapproved | any approval action | **no-op** (no state change, no comment) | — |
 
-> **Title-only references are intentionally ignored.** Only the MR description body and commit messages are scanned for issue refs — the MR `title` field is not parsed.
+> **Title-only references are intentionally ignored.** Only the MR description body, commit messages, and human MR comments are scanned for issue refs — the MR `title` field is not parsed.
 >
-> **Merge and close fetch all MR commits** via the GitLab API (`GET /projects/:id/merge_requests/:iid/commits`), so `closes DEV-xx` in any commit — not just the description — is recognized. Open/update/reopen also fetch all commits.
+> **Merge and close fetch all MR commits and all MR comments** via the GitLab API (`GET /projects/:id/merge_requests/:iid/commits` and `GET /projects/:id/merge_requests/:iid/notes`), so `closes DEV-xx` in any commit or any human comment — not just the description — is recognized. Open/update/reopen also fetch both. A reference that exists ONLY in a comment therefore still closes on merge (→ Done) and still resets on close-without-merge (→ Todo, guarded).
+
+## MR comments (note events, workflow-1)
+
+GitLab delivers comments as `object_kind: "note"` webhooks. The workflow routes
+them through the existing webhook path (`GitLab Webhook → Verify Secret →
+Route Event`), then a dedicated `MR Note?` IF applies three filters:
+
+1. **MR notes only** — `object_attributes.noteable_type` must be `MergeRequest`. Comments on issues, commits, and snippets are ignored.
+2. **Human notes only** — `object_attributes.system !== true`. System notes (state changes, approvals, assignment notes) are never user intent; this also prevents the bridge from reacting to its own/system-generated description diffs.
+3. **Create/update actions only** — non-create/update actions are ignored. A payload without an `action` field (older GitLab versions) is treated as a create.
+
+The note body is parsed with the **same keyword semantics** as everywhere else
+(`closes|fixes|resolves`, `reopens`, bare mention; markdown-link-aware; mixed
+case rejected; no MR title parsing), and the mapping depends on the MR's
+**current state** carried in the webhook payload:
+
+| MR state at comment time | `closes/fixes/resolves` | bare mention | `reopens` |
+|---|---|---|---|
+| `opened` | close-in-mr → **In Review** | mr-open → **In Progress** | reopen → **In Progress** |
+| `merged` | target = default or `dev` → **Done** (merged); otherwise → **In Review** | mention → **In Progress** | reopen → **In Progress** |
+| `closed` (unmerged) | mr-closed → **Todo** (guarded) | mention → **In Progress** | reopen → **In Progress** |
+
+Existing guards always apply: Cancelled untouched, Done not downgraded (except
+explicit `reopens`), In Review not downgraded by a bare mention.
+
+### All human MR notes are scanned on every MR lifecycle event
+
+For `open`, `update`, `reopen`, `merge`, and `close`, the workflow additionally
+fetches **every** human MR comment via the paginated notes API
+(`GET /projects/:id/merge_requests/:iid/notes`, `per_page=100`) and scans the
+note bodies alongside the MR description and all MR commits in a single
+normalizer run:
+
+- **Strictly sequential graph, no fan-out merges.** The chain is
+  `MR Action? (TRUE) → Get MR Commits → Get MR Notes → Filter MR Notes →
+  Normalize MR (with commits)`. Ordinary n8n nodes do NOT merge multiple
+  incoming branches into one execution, so the notes fetch is wired in series
+  behind the commits fetch. This guarantees a notes API failure (or a
+  malformed notes page) always stops the run **before** the Reducer — no
+  comment, state change, or linkback can ever run on a truncated scan.
+- **Exactly one notes fetch per event.** `Get MR Commits` emits one item per
+  commit, so `Get MR Notes` is set to **Execute Once** and anchored on
+  `$('MR Action?').first()` (never `$json`, which is a commit item flowing
+  through the chain). `alwaysOutputData` on both HTTP nodes keeps the branch
+  alive for zero-commit MRs and empty notes responses.
+- The HTTP Request node paginates with `page={{ $pageCount + 1 }}` and stops
+  only when a page returns **fewer than 100 notes** (GitLab's last-page rule).
+  There is **no page cap**: a page cap would silently truncate the scan, so
+  instead any unexpected page shape or API error **fails the run loudly**
+  (safe failure) in `Filter MR Notes` before any Plane side effect runs.
+- `Filter MR Notes` drops `system: true` notes and reshapes the rest into
+  message items that the existing `Normalize MR (with commits)` node scans
+  exactly like commit messages. The normalizer reads commits from
+  `$('Get MR Commits')` node data and note messages from its input, and scans
+  the description exactly once. When an MR has **no human comments**
+  (system-only notes, an empty notes page, or the `alwaysOutputData`
+  placeholder), `Filter MR Notes` emits a single empty sentinel message — the
+  normalizer still runs and simply matches nothing on the comment side. A note
+  object that has fields but no body remains a hard failure.
+- No workflow `staticData` is used to remember seen references — every scan
+  re-reads the current MR state from the GitLab API, so a comment-only
+  reference is picked up at merge/close time even if the comment arrived days
+  earlier.
+- **Edited comments are handled safely.** Note `update` events are re-scanned
+  like creates: the same body/action re-emits the same decision `external_id`
+  (`gitlab-mr-<iid>-<action>-<issue>` → Plane 409, no duplicate), and an edit
+  that introduces a genuinely new action (e.g. `closes` → `reopens`) flows
+  through the normal guards. An edit only ever changes state in the guarded
+  direction — it can never force Done or downgrade protected states.
+- **Identity resolution follows the GitLab docs.** The MR is identified by
+  `merge_request.iid` (never `noteable_id`), and the project comes from the
+  payload `project.id` with a fallback to the note's own
+  `object_attributes.project_id` (the MR entity inside note payloads carries
+  no `project_id`).
+- The bridge **never edits MR comments** (it only posts commit comments and
+  edits MR descriptions, both idempotent), so processing notes cannot create a
+  feedback loop. Repeated identical comments dedupe via the Plane comment
+  `external_id` (`gitlab-mr-<iid>-<action>-<issue>` → 409 on duplicate).
 
 ### Guards (always applied)
 
@@ -178,15 +264,15 @@ Issue key regex (case-sensitive): `DEV-15`, `ADM-3` — must be uppercase prefix
 
 ## MR lifecycle routing (workflow-1)
 
-The `MR Action?` IF node routes five MR webhook actions through the TRUE path (Get MR Commits → Normalize MR (with commits)), where all MR commits are fetched and scanned alongside the MR description:
+The `MR Action?` IF node routes five MR webhook actions through the TRUE path — a strict sequential chain `Get MR Commits → Get MR Notes → Filter MR Notes → Normalize MR (with commits)` — where all MR commits AND all human MR comments are fetched and scanned alongside the MR description in ONE normalizer run:
 
 | MR action | Routed? | Issue ref handling |
 |---|---|---|
-| `open` | TRUE → Get MR Commits | `closes` → close-in-mr (In Review); `reopens` → reopen; bare → mr-open (In Progress) |
-| `update` | TRUE → Get MR Commits | same as open |
-| `reopen` | TRUE → Get MR Commits | same as open |
-| `merge` | TRUE → Get MR Commits | `closes` → merged (Done if target = default branch, else close-in-mr); `reopens` → reopen; bare → mention |
-| `close` | TRUE → Get MR Commits | every discovered issue ref → mr-closed (→ Todo, guarded) |
+| `open` | TRUE → Get MR Commits → Get MR Notes | `closes` (description, commits, or comments) → close-in-mr (In Review); `reopens` → reopen; bare → mr-open (In Progress) |
+| `update` | TRUE → Get MR Commits → Get MR Notes | same as open |
+| `reopen` | TRUE → Get MR Commits → Get MR Notes | same as open |
+| `merge` | TRUE → Get MR Commits → Get MR Notes | `closes` → merged (Done if target = default branch or `dev`, else close-in-mr); `reopens` → reopen; bare → mention |
+| `close` | TRUE → Get MR Commits → Get MR Notes | every discovered issue ref (description, commits, or comments) → mr-closed (→ Todo, guarded) |
 | `approval` / `approved` / `unapproval` / `unapproved` | FALSE → Normalize MR (direct) | **no-op** — returns `[]`, no state change, no comment |
 
 All other MR actions also go FALSE and produce no output.
@@ -210,7 +296,7 @@ The backstop is a **bounded-window** poller, not an open-ended "since" scan.
 `node --test files/gitlab-plane-bridge/tests/*.test.mjs` runs tests that execute
 the ACTUAL `jsCode` stored in `workflow-1-realtime.json` inside a vm sandbox
 (emulating `$input` / `$env` / `$('Node').itemMatching()`), plus structural
-graph checks (25 live nodes + IDs preserved, barrier wiring, side-effect
+graph checks (34 live nodes + IDs preserved, barrier wiring, side-effect
 branches, backstop untouched). Covered: 429→200 mixed ordering in both
 positions, 3-attempt budget (exactly 2 waits, then throw), permanent
 401/403/404/500 with no wait and no release, Retry-After seconds/HTTP-date/
@@ -218,6 +304,19 @@ malformed/missing/floor-600 (long server waits honored)/max-across-batch, single
 fresh FINAL-round work items driving the guards (Done/Cancelled protection),
 original-decision mapping with no numeric fallback, context-missing throws,
 and error messages that never leak body keys or auth headers.
+
+`tests/mr-comments.test.mjs` additionally covers the MR-comment feature end to
+end against the real node code: system-note/human-note filtering and safe
+failure on malformed pages (with the empty placeholder tolerated and a
+no-human-notes sentinel), note-event filters (MR only, create/update only),
+markdown plain/linked refs, state-aware comment mapping (opened/merged/closed ×
+validated targets), comment-only references closing on merge and resetting on
+close-without-merge, bare-mention no-false-closure, precedence of conflicting
+refs across sources (closes in description/commits vs reopens in comments and
+vice versa — reopen wins in the reducer), repeat dedup (in-note and across
+events via external_id), the sequential single-path graph config (one
+normalizer inbound, Execute Once notes fetch, no silent page cap), and guards
+(In Review / Done / mr-closed rules) applied to comment-driven decisions.
 
 ### Real-time (workflow-1)
 
@@ -228,9 +327,16 @@ and error messages that never leak body keys or auth headers.
 5. Merge the MR to the default branch → expect state → **Done** + the MR description edited to link back to the Plane issue.
 6. Push a commit `reopens DEV-1` → expect Done → **In Progress**.
 7. Re-push the same commit → expect **no duplicate comment** (409 handled via `external_id`).
-8. Open an MR with title `DEV-2 fix` but no issue ref in the description or commits → expect **no state change** (title-only references are intentionally ignored).
+8. Open an MR with title `DEV-2 fix` but no issue ref in the description, commits, or comments → expect **no state change** (title-only references are intentionally ignored).
 9. Approve / unapprove an MR → expect **no state change, no comment** (approval actions are no-ops).
 10. After linkback has mutated the description to `closes [DEV-1](url)`, trigger an MR `update` → expect `closes [DEV-1](url)` to still be recognized as a close ref (markdown-link-aware).
+11. On an **open** MR targeting the default branch, post a human comment `closes DEV-1` → expect a Plane comment + state → **In Review** (comment-only reference).
+12. Create an MR whose description/comments contain NO refs, push no closing commits, but post a comment `closes DEV-2`, then **merge** the MR to the default branch → expect **Done** (the merge event scans all human MR notes).
+13. Post a comment `closes DEV-2`, then **close** the MR without merging → expect the issue reset **Todo** if it was In Progress/In Review (guarded).
+14. Post a bare comment `DEV-2` (no keyword) on an open MR whose issue is In Review → expect **no state change** (bare mentions never close and never downgrade In Review), only the "MR" linkback comment.
+15. Post the SAME comment `closes DEV-2` twice on the same open MR → expect **no duplicate** Plane comment (external_id 409) and no state flapping.
+16. Comment on an **issue** (not an MR), or observe a system note (e.g. "changed title") → expect **no state change, no comment** (only human MR comments are processed).
+17. Comment `closes DEV-2` on an MR that is **already merged** into the default branch → expect **Done** (if not already Done); on an issue already Done → expect no state change (Done protected).
 
 ### Backstop (workflow-2)
 
@@ -255,13 +361,25 @@ See the full roadmap in [`docs/plans/gitlab-plane-bridge.md`](../../docs/plans/g
 ### Real-time (workflow-1)
 
 ```
-GitLab Webhook (Push + MR events)
+GitLab Webhook (Push + MR + Note events)
   → Verify Secret (X-Gitlab-Token)
-  → Switch on event type (push / merge_request)
+  → Switch on event type (push / merge_request / note)
   → Push: Normalize Push (extract DEV-NN from commit messages)
   → MR: MR Action? (open/update/reopen/merge/close → TRUE; approval/etc → FALSE)
-       TRUE:  Get MR Commits → Normalize MR (with commits) — scans description + all commits
-       FALSE: Normalize MR (direct) — returns [] for non-merge/close actions
+        TRUE (strict sequence — one normalizer run, notes failure stops
+              the run BEFORE the Reducer):
+          Get MR Commits → Get MR Notes (Execute Once; URL anchored on the
+                          webhook payload; paginated notes API, no cap)
+            → Filter MR Notes (system notes dropped; no human notes → one
+              empty sentinel message; malformed page → safe failure)
+            → Normalize MR (with commits) — scans description ONCE + commits
+              (from Get MR Commits) + ALL human comments (from input)
+        FALSE: Normalize MR (direct) — returns [] for non-merge/close actions
+  → Note: MR Note? (MergeRequest + human + create/update only → TRUE)
+        TRUE:  Normalize MR Note — scans the comment body; mapping by MR state
+               (opened → close-in-mr/mr-open, merged → merged/mention,
+                closed → mr-closed/mention)
+        FALSE: dropped (issue/commit comments, system notes, other actions)
   → Reducer (group by issue, apply precedence + guards)
   → Plane lookup retry barrier:
        Prepare Lookup Attempt → Plane: Get Work Item by identifier (DEV-15 → UUID,

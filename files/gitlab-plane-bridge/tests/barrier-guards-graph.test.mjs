@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadCandidate, loadBackstop, jsCodeOf, runCodeNode, decision, SMOKE_CFG,
-  NEW_BARRIER_NODES, BASELINE_25_NODES, PRESERVED_IDS, candidatePath, opsArtifactPath,
+  NEW_BARRIER_NODES, BASELINE_25_NODES, MR_COMMENT_NODES, PRESERVED_IDS, candidatePath, opsArtifactPath,
 } from './helpers.mjs';
 import fs from 'node:fs';
 
@@ -83,11 +83,12 @@ const conns = wf.connections;
 const hasConn = (source, target, sourceIndex = 0) =>
   (conns[source]?.main?.[sourceIndex] || []).some((c) => c.node === target);
 
-test('graph: all 25 live nodes preserved by name + 5 barrier nodes added (30 total)', () => {
-  assert.equal(wf.nodes.length, 30);
+test('graph: all 25 live nodes preserved by name + 5 barrier + 4 MR-comment nodes (34 total)', () => {
+  assert.equal(wf.nodes.length, 34);
   const names = wf.nodes.map((n) => n.name);
   for (const name of BASELINE_25_NODES) assert.ok(names.includes(name), `missing live node: ${name}`);
   for (const name of NEW_BARRIER_NODES) assert.ok(names.includes(name), `missing barrier node: ${name}`);
+  for (const name of MR_COMMENT_NODES) assert.ok(names.includes(name), `missing MR-comment node: ${name}`);
 });
 
 test('graph: critical node IDs preserved from live workflow', () => {
@@ -130,11 +131,22 @@ test('graph: all live side-effect branches and live-only nodes untouched', () =>
   assert.ok(hasConn('Verify Secret', 'Route Event'));
   assert.ok(hasConn('Route Event', 'Normalize Push'));
   assert.ok(hasConn('Route Event', 'MR Action?', 1));
+  assert.ok(hasConn('Route Event', 'MR Note?', 2), 'note events route to MR Note?');
   assert.ok(hasConn('MR Action?', 'Get MR Commits', 0));
   assert.ok(hasConn('MR Action?', 'Normalize MR (direct)', 1));
   assert.ok(hasConn('Normalize Push', 'Reducer'));
   assert.ok(hasConn('Normalize MR (with commits)', 'Reducer'));
   assert.ok(hasConn('Normalize MR (direct)', 'Reducer'));
+  // MR-comment support wiring — strict SEQUENTIAL chain (no fan-out merge):
+  // MR Action? TRUE -> Get MR Commits -> Get MR Notes -> Filter MR Notes
+  //   -> Normalize MR (with commits) -> Reducer (single path, one execution).
+  assert.deepEqual((conns['MR Action?']?.main?.[0] || []).map((c) => c.node), ['Get MR Commits'],
+    'MR Action? TRUE feeds ONLY Get MR Commits');
+  assert.deepEqual((conns['Get MR Commits']?.main?.[0] || []).map((c) => c.node), ['Get MR Notes']);
+  assert.ok(hasConn('Get MR Notes', 'Filter MR Notes'));
+  assert.ok(hasConn('Filter MR Notes', 'Normalize MR (with commits)'), 'note bodies scanned like commit messages');
+  assert.ok(hasConn('MR Note?', 'Normalize MR Note', 0));
+  assert.ok(hasConn('Normalize MR Note', 'Reducer'));
 });
 
 test('graph: Get Work Item keeps same URL/env auth, gains fullResponse+neverError', () => {
@@ -175,7 +187,7 @@ test('graph: IF routing condition + Wait node delay policy', () => {
 
 test('graph: no new retries or side-effect changes on other API nodes', () => {
   // every other HTTP node keeps plain options (no fullResponse introduced there)
-  for (const name of ['Get MR Commits', 'Update State', 'Post Commit Comment', 'Edit MR Description', 'Get Members']) {
+  for (const name of ['Get MR Commits', 'Get MR Notes', 'Update State', 'Post Commit Comment', 'Edit MR Description', 'Get Members']) {
     const n = wf.nodes.find((x) => x.name === name);
     assert.ok(n, `${name} present`);
     const opt = JSON.stringify(n.parameters.options || {});
