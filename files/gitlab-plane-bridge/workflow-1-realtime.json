@@ -481,7 +481,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst commits = {};\nconst mergeRequests = {};\nfor (const value of $input.all().map(item => item.json)) {\n  for (const sha of value.commitShas || []) {\n    const commit = commits[sha] ??= { gitlabProjectId: value.gitlabProjectId, issues: [] };\n    if (!commit.issues.some(issue => issue.key === value.issueKey)) commit.issues.push({ key: value.issueKey, url: value.workItemUrl });\n  }\n  if (value.mrIid && value.mrDescription) {\n    const mr = mergeRequests[value.mrIid] ??= { gitlabProjectId: value.gitlabProjectId, description: value.mrDescription, issues: [] };\n    if (!mr.issues.some(issue => issue.key === value.issueKey)) mr.issues.push({ key: value.issueKey, url: value.workItemUrl });\n  }\n}\n\nconst output = [];\nfor (const [sha, commit] of Object.entries(commits)) {\n  if (!commit.gitlabProjectId) continue;\n  output.push({ json: { linkType: 'commit', gitlabProjectId: commit.gitlabProjectId, commitSha: sha, note: commit.issues.map(issue => `[${issue.key}](${issue.url})`).join(' · ') } });\n}\nfor (const [iid, mr] of Object.entries(mergeRequests)) {\n  if (!mr.gitlabProjectId) continue;\n  let description = mr.description;\n  for (const issue of mr.issues) {\n    if (description.includes(`[${issue.key}](`)) continue;\n    const escapedKey = issue.key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n    const plainIssue = new RegExp(`(^|[^A-Z0-9\\\\[/])${escapedKey}(?![A-Z0-9-])`, 'g');\n    description = description.replace(plainIssue, (match, prefix) => `${prefix}[${issue.key}](${issue.url})`);\n  }\n  output.push({ json: { linkType: 'mr', gitlabProjectId: mr.gitlabProjectId, mrIid: iid, newDescription: description } });\n}\nreturn output;\n"
+        "jsCode": "\nconst commits = {};\nconst mergeRequests = {};\nfor (const value of $input.all().map(item => item.json)) {\n  for (const sha of value.commitShas || []) {\n    const commit = commits[sha] ??= { gitlabProjectId: value.gitlabProjectId, issues: [] };\n    if (!commit.issues.some(issue => issue.key === value.issueKey)) commit.issues.push({ key: value.issueKey, url: value.workItemUrl });\n  }\n  if (value.mrIid && value.mrDescription) {\n    const mr = mergeRequests[value.mrIid] ??= { gitlabProjectId: value.gitlabProjectId, description: value.mrDescription, issues: [] };\n    if (!mr.issues.some(issue => issue.key === value.issueKey)) mr.issues.push({ key: value.issueKey, url: value.workItemUrl });\n  }\n}\n\nconst output = [];\nfor (const [sha, commit] of Object.entries(commits)) {\n  if (!commit.gitlabProjectId) continue;\n  output.push({ json: { linkType: 'commit', gitlabProjectId: commit.gitlabProjectId, commitSha: sha, note: commit.issues.map(issue => `[${issue.key}](${issue.url})`).join(' · ') } });\n}\nfor (const [iid, mr] of Object.entries(mergeRequests)) {\n  if (!mr.gitlabProjectId) continue;\n  let description = mr.description;\n  for (const issue of mr.issues) {\n    if (description.includes(`[${issue.key}](`)) continue;\n    const escapedKey = issue.key.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n    const plainIssue = new RegExp(`(^|[^A-Z0-9\\\\[/])${escapedKey}(?![A-Z0-9-])`, 'g');\n    description = description.replace(plainIssue, (match, prefix) => `${prefix}[${issue.key}](${issue.url})`);\n  }\n  // An unchanged PUT still emits an MR update webhook: never send it.\n  if (description === mr.description) continue;\n  output.push({ json: { linkType: 'mr', gitlabProjectId: mr.gitlabProjectId, mrIid: iid, newDescription: description } });\n}\nreturn output;\n"
       },
       "id": "25d35f13-a95c-4996-9ead-ec70f6b98f3b",
       "name": "Prepare GitLab Linkback",
@@ -759,7 +759,7 @@
             },
             {
               "leftValue": "={{ !$json.object_attributes.action || ['create','update'].includes($json.object_attributes.action) }}",
-              "rightValue": "",
+              "rightValue": true,
               "operator": {
                 "type": "boolean",
                 "operation": "true"
@@ -767,7 +767,7 @@
             },
             {
               "leftValue": "={{ ($json.object_attributes || {}).system !== true }}",
-              "rightValue": "",
+              "rightValue": true,
               "operator": {
                 "type": "boolean",
                 "operation": "true"
