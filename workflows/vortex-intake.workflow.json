@@ -1,0 +1,297 @@
+{
+  "name": "Vortex intake → Plane",
+  "nodes": [
+    {
+      "id": "a1f0c2d3-0001-4a01-9a01-vortexnotes1",
+      "name": "Sticky Note - Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-780, -120],
+      "parameters": {
+        "content": "## Vortex intake → Plane\n\nRecebe feedback (bugs/features) das instalações Vortex, aplica anti-spam e cria a issue no Plane (projecto VORTEX).\n\n### Setup\n1. **Webhook**: criar credencial *Header Auth* (nome do header: `X-Vortex-Feedback-Token`, valor: o token partilhado) e associá-la ao nó Webhook.\n2. **Config**: preencher `planeBaseUrl`, `planeProjectId` e `planeApiKey` (Personal Access Token do Plane: Profile Settings → Personal Access Tokens; usar uma conta de serviço com expiração).\n3. **Telegram/Email**: estão DESLIGADOS (`disabled`). Preencher credenciais e `telegramChatId`/`toEmail`, depois ativar os nós.\n4. **Ativar o workflow** (o rate-limit usa static data, que só persiste em execuções de produção, não em testes no editor).\n\n### URL de produção\n`https://<n8n-domain>/webhook/vortex-feedback` (POST)\n\nConfigurar no Vortex: `FEEDBACK_WEBHOOK_URL` + `FEEDBACK_WEBHOOK_TOKEN`.\n\n### Anti-spam incluído\n- Honeypot `website` (preenchido → drop silencioso)\n- Validação de título/descrição/tipo\n- Rate-limit por instância: burst 5, refill 5/hora (token bucket em static data)",
+        "width": 460,
+        "height": 520
+      }
+    },
+    {
+      "id": "b2f0c2d3-0002-4a02-9a02-vortexcfg01",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-260, 60],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa01",
+              "name": "planeBaseUrl",
+              "value": "https://plane.CHANGE-ME.example",
+              "type": "string"
+            },
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa02",
+              "name": "planeWorkspaceSlug",
+              "value": "novaforensic",
+              "type": "string"
+            },
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa03",
+              "name": "planeProjectId",
+              "value": "5f28cbf4-ad80-4914-90f3-ad09b2e21080",
+              "type": "string"
+            },
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa04",
+              "name": "planeApiKey",
+              "value": "CHANGE-ME-personal-access-token",
+              "type": "string"
+            },
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa05",
+              "name": "telegramChatId",
+              "value": "CHANGE-ME-chat-id",
+              "type": "string"
+            },
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa06",
+              "name": "notifyEmail",
+              "value": "CHANGE-ME@example.com",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b3f0c2d3-0003-4a03-9a03-vortexhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-260, 260],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vortex-feedback",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202,
+          "ignoreBots": true
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Vortex Shared Secret"
+        }
+      }
+    },
+    {
+      "id": "b4f0c2d3-0004-4a04-9a04-vortexspam1",
+      "name": "Anti-spam & prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-20, 260],
+      "parameters": {
+        "jsCode": "// Anti-spam + normalização do intake Vortex\nconst sd = $getWorkflowStaticData('global');\nconst body = $json.body || {};\nconst headers = $json.headers || {};\n\n// 1) Honeypot — drop silencioso\nconst honeypot = (body.website ?? '').toString().trim();\nif (honeypot !== '') return [{ json: { spam: true, reason: 'honeypot' } }];\n\n// 2) Validação de campos\nconst title = (body.title ?? '').toString().trim();\nconst description = (body.description ?? '').toString().trim();\nconst type = (body.type ?? '').toString().trim().toLowerCase();\nif (title.length < 3 || title.length > 160) return [{ json: { spam: true, reason: 'title' } }];\nif (description.length < 10 || description.length > 4000) return [{ json: { spam: true, reason: 'description' } }];\nif (!['bug', 'feature'].includes(type)) return [{ json: { spam: true, reason: 'type' } }];\n\n// 3) Rate-limit por instância (token bucket: burst 5, refill 5/hora)\nconst instance = (body.instance?.name ?? headers['x-forwarded-for'] ?? 'default').toString().slice(0, 100);\nsd.buckets ??= {};\nconst now = Date.now();\nconst b = sd.buckets[instance] ??= { tokens: 5, ts: now };\nb.tokens = Math.min(5, b.tokens + ((now - b.ts) / 3600000) * 5);\nb.ts = now;\nif (b.tokens < 1) return [{ json: { spam: true, reason: 'rate_limit' } }];\nb.tokens -= 1;\n\n// 4) Preparar payload do Plane (HTML saneado)\nconst esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst html = '<p>' + esc(description).replace(/\\n{2,}/g, '</p><p>').replace(/\\n/g, '<br>') + '</p>';\nconst instanceName = (body.instance?.name ?? 'desconhecida').toString().slice(0, 100);\nconst instanceUrl = (body.instance?.url ?? '').toString().slice(0, 200);\nconst userName = (body.user?.name ?? '').toString().slice(0, 120);\nconst userEmail = (body.user?.email ?? '').toString().slice(0, 200);\nconst reportedAt = (body.reported_at ?? new Date().toISOString()).toString();\n\nconst meta = [\n  '<hr><p><strong>Instância:</strong> ' + esc(instanceName) + (instanceUrl ? ' (' + esc(instanceUrl) + ')' : '') + '</p>',\n  '<p><strong>Reportado por:</strong> ' + esc(userName) + (userEmail ? ' &lt;' + esc(userEmail) + '&gt;' : '') + '</p>',\n  '<p><strong>Data:</strong> ' + esc(reportedAt) + '</p>',\n].join('\\n');\n\nreturn [{\n  json: {\n    spam: false,\n    type,\n    instanceName,\n    planeIssue: {\n      name: (type === 'bug' ? '[Bug] ' : '[Feature] ') + title,\n      description_html: html + meta,\n      priority: 'none',\n      external_id: 'vortex-' + instance + '-' + now,\n      external_source: 'vortex-intake',\n    },\n    notifyText: (type === 'bug' ? '🐞 Bug' : '✨ Feature') + ' de ' + instanceName + '\\n' + title + '\\n\\n' + description.slice(0, 500) + '\\n\\nPor: ' + userName + (userEmail ? ' <' + userEmail + '>' : ''),\n  },\n}];"
+      }
+    },
+    {
+      "id": "b5f0c2d3-0005-4a05-9a05-vortexif001",
+      "name": "Spam?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [220, 260],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d1aa0001-2222-4222-8222-bbbbbbbbbb01",
+              "leftValue": "={{ $json.spam }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b6f0c2d3-0006-4a06-9a06-vortexdrop1",
+      "name": "Spam – drop silencioso",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [460, 120],
+      "parameters": {}
+    },
+    {
+      "id": "b7f0c2d3-0007-4a07-9a07-vortextg001",
+      "name": "Telegram (desativado)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [460, 340],
+      "disabled": true,
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('Config').first().json.telegramChatId }}",
+        "text": "={{ $json.notifyText }}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Vortex intake bot"
+        }
+      }
+    },
+    {
+      "id": "b8f0c2d3-0008-4a08-9a08-vortexmail01",
+      "name": "Email (desativado)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [700, 340],
+      "disabled": true,
+      "parameters": {
+        "fromEmail": "noreply@CHANGE-ME.example",
+        "toEmail": "={{ $('Config').first().json.notifyEmail }}",
+        "subject": "={{ $json.planeIssue.name }}",
+        "emailFormat": "html",
+        "html": "={{ $json.planeIssue.description_html }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "REPLACE_ME",
+          "name": "SMTP Vortex intake"
+        }
+      }
+    },
+    {
+      "id": "b9f0c2d3-0009-4a09-9a09-vortexpln001",
+      "name": "Criar issue no Plane",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 340],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.planeBaseUrl }}/api/v2/workspaces/{{ $('Config').first().json.planeWorkspaceSlug }}/projects/{{ $('Config').first().json.planeProjectId }}/work-items/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $('Config').first().json.planeApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.planeIssue) }}",
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "id": "baf0c2d3-000a-4a0a-9a0a-vortexok0001",
+      "name": "Issue criada",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1180, 340],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Anti-spam & prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anti-spam & prepare": {
+      "main": [
+        [
+          {
+            "node": "Spam?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Spam?": {
+      "main": [
+        [
+          {
+            "node": "Spam – drop silencioso",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram (desativado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram (desativado)": {
+      "main": [
+        [
+          {
+            "node": "Email (desativado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email (desativado)": {
+      "main": [
+        [
+          {
+            "node": "Criar issue no Plane",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar issue no Plane": {
+      "main": [
+        [
+          {
+            "node": "Issue criada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
