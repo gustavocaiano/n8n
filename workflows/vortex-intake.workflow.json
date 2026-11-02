@@ -76,7 +76,7 @@
         "responseMode": "onReceived",
         "options": {
           "responseCode": 202,
-          "ignoreBots": true
+          "ignoreBots": false
         }
       },
       "credentials": {
