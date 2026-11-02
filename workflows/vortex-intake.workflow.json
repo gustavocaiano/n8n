@@ -41,6 +41,18 @@
               "type": "string"
             },
             {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa07",
+              "name": "planeLabelBugId",
+              "value": "331c65f2-1c2e-4ab8-8fce-a5b92387192b",
+              "type": "string"
+            },
+            {
+              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa08",
+              "name": "planeLabelFeatureId",
+              "value": "977bd461-ae12-409c-a029-9bb4f3dc1af9",
+              "type": "string"
+            },
+            {
               "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa04",
               "name": "planeApiKey",
               "value": "CHANGE-ME-personal-access-token",
@@ -197,7 +209,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.planeIssue) }}",
+        "jsonBody": "={{ JSON.stringify({ ...$json.planeIssue, label_ids: [$json.type === 'bug' ? $('Config').first().json.planeLabelBugId : $('Config').first().json.planeLabelFeatureId].filter(Boolean) }) }}",
         "options": {}
       },
       "retryOnFail": true,
