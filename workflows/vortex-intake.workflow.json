@@ -6,11 +6,39 @@
       "name": "Sticky Note - Setup",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-780, -120],
+      "position": [
+        0,
+        -220
+      ],
       "parameters": {
-        "content": "## Vortex intake → Plane\n\nRecebe feedback (bugs/features) das instalações Vortex, aplica anti-spam e cria a issue no Plane (projecto VORTEX).\n\n### Setup\n1. **Webhook**: criar credencial *Header Auth* (nome do header: `X-Vortex-Feedback-Token`, valor: o token partilhado) e associá-la ao nó Webhook.\n2. **Config**: preencher `planeBaseUrl`, `planeProjectId` e `planeApiKey` (Personal Access Token do Plane: Profile Settings → Personal Access Tokens; usar uma conta de serviço com expiração).\n3. **Telegram/Email**: estão DESLIGADOS (`disabled`). Preencher credenciais e `telegramChatId`/`toEmail`, depois ativar os nós.\n4. **Ativar o workflow** (o rate-limit usa static data, que só persiste em execuções de produção, não em testes no editor).\n\n### URL de produção\n`https://<n8n-domain>/webhook/vortex-feedback` (POST)\n\nConfigurar no Vortex: `FEEDBACK_WEBHOOK_URL` + `FEEDBACK_WEBHOOK_TOKEN`.\n\n### Anti-spam incluído\n- Honeypot `website` (preenchido → drop silencioso)\n- Validação de título/descrição/tipo\n- Rate-limit por instância: burst 5, refill 5/hora (token bucket em static data)",
-        "width": 460,
-        "height": 520
+        "content": "## Vortex feedback v2 → Plane\n\nLocal candidate — NOT PUBLISHED.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment.\nV2: only HTTP 200 completed after issue/attachment confirmation. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nConfigure Vortex Shared Secret and Vortex Intake Internal (X-Vortex-Intake-Token).\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.",
+        "width": 720,
+        "height": 380
+      }
+    },
+    {
+      "id": "b3f0c2d3-0003-4a03-9a03-vortexhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        240
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vortex-feedback",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "ignoreBots": false
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Vortex Shared Secret"
+        }
       }
     },
     {
@@ -18,44 +46,17 @@
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-260, 60],
+      "position": [
+        220,
+        240
+      ],
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa01",
-              "name": "planeBaseUrl",
-              "value": "https://plane.CHANGE-ME.example",
-              "type": "string"
-            },
-            {
-              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa02",
-              "name": "planeWorkspaceSlug",
-              "value": "novaforensic",
-              "type": "string"
-            },
-            {
-              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa03",
-              "name": "planeProjectId",
-              "value": "5f28cbf4-ad80-4914-90f3-ad09b2e21080",
-              "type": "string"
-            },
-            {
-              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa07",
-              "name": "planeLabelBugId",
-              "value": "331c65f2-1c2e-4ab8-8fce-a5b92387192b",
-              "type": "string"
-            },
-            {
-              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa08",
-              "name": "planeLabelFeatureId",
-              "value": "977bd461-ae12-409c-a029-9bb4f3dc1af9",
-              "type": "string"
-            },
-            {
-              "id": "c1aa0001-1111-4111-8111-aaaaaaaaaa04",
-              "name": "planeApiKey",
-              "value": "CHANGE-ME-personal-access-token",
+              "id": "intake-url",
+              "name": "intakeUrl",
+              "value": "http://vortex-intake:8086/intake",
               "type": "string"
             },
             {
@@ -72,48 +73,33 @@
             }
           ]
         },
+        "includeOtherFields": true,
         "options": {}
       }
     },
     {
-      "id": "b3f0c2d3-0003-4a03-9a03-vortexhook1",
-      "name": "Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2.1,
-      "position": [-260, 260],
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "vortex-feedback",
-        "authentication": "headerAuth",
-        "responseMode": "onReceived",
-        "options": {
-          "responseCode": 202,
-          "ignoreBots": false
-        }
-      },
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_ME",
-          "name": "Vortex Shared Secret"
-        }
-      }
-    },
-    {
-      "id": "b4f0c2d3-0004-4a04-9a04-vortexspam1",
-      "name": "Anti-spam & prepare",
+      "id": "vortex-intake-normalize-request",
+      "name": "Normalize request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-20, 260],
+      "position": [
+        440,
+        240
+      ],
       "parameters": {
-        "jsCode": "// Anti-spam + normalização do intake Vortex\nconst sd = $getWorkflowStaticData('global');\nconst body = $json.body || {};\nconst headers = $json.headers || {};\n\n// 1) Honeypot — drop silencioso\nconst honeypot = (body.website ?? '').toString().trim();\nif (honeypot !== '') return [{ json: { spam: true, reason: 'honeypot' } }];\n\n// 2) Validação de campos\nconst title = (body.title ?? '').toString().trim();\nconst description = (body.description ?? '').toString().trim();\nconst type = (body.type ?? '').toString().trim().toLowerCase();\nif (title.length < 3 || title.length > 160) return [{ json: { spam: true, reason: 'title' } }];\nif (description.length < 10 || description.length > 4000) return [{ json: { spam: true, reason: 'description' } }];\nif (!['bug', 'feature'].includes(type)) return [{ json: { spam: true, reason: 'type' } }];\n\n// 3) Rate-limit por instância (token bucket: burst 5, refill 5/hora)\nconst instance = (body.instance?.name ?? headers['x-forwarded-for'] ?? 'default').toString().slice(0, 100);\nsd.buckets ??= {};\nconst now = Date.now();\nconst b = sd.buckets[instance] ??= { tokens: 5, ts: now };\nb.tokens = Math.min(5, b.tokens + ((now - b.ts) / 3600000) * 5);\nb.ts = now;\nif (b.tokens < 1) return [{ json: { spam: true, reason: 'rate_limit' } }];\nb.tokens -= 1;\n\n// 4) Preparar payload do Plane (HTML saneado)\nconst esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n// URL clicável: só http(s) sem espaços/aspas/<>; qualquer outro valor fica como texto escapado\nconst link = (u) => /^https?:\\/\\/[^\\s<>\"']+$/i.test(u)\n  ? '<a href=\"' + esc(u) + '\" target=\"_blank\" rel=\"noopener noreferrer\">' + esc(u) + '</a>'\n  : esc(u);\nconst html = '<p>' + esc(description).replace(/\\n{2,}/g, '</p><p>').replace(/\\n/g, '<br>') + '</p>';\nconst instanceName = (body.instance?.name ?? 'desconhecida').toString().slice(0, 100);\nconst instanceUrl = (body.instance?.url ?? '').toString().slice(0, 200);\nconst userName = (body.user?.name ?? '').toString().slice(0, 120);\nconst userEmail = (body.user?.email ?? '').toString().slice(0, 200);\nconst reportedAt = (body.reported_at ?? new Date().toISOString()).toString();\n\nconst meta = [\n  '<hr><p><strong>Instância:</strong> ' + esc(instanceName) + (instanceUrl ? ' (' + link(instanceUrl) + ')' : '') + '</p>',\n  '<p><strong>Reportado por:</strong> ' + esc(userName) + (userEmail ? ' &lt;' + esc(userEmail) + '&gt;' : '') + '</p>',\n  '<p><strong>Data:</strong> ' + esc(reportedAt) + '</p>',\n].join('\\n');\n\nreturn [{\n  json: {\n    spam: false,\n    type,\n    instanceName,\n    planeIssue: {\n      name: (type === 'bug' ? '[Bug] ' : '[Feature] ') + title,\n      description_html: html + meta,\n      priority: 'none',\n      external_id: 'vortex-' + instance + '-' + now,\n      external_source: 'vortex-intake',\n    },\n    notifyText: (type === 'bug' ? '🐞 Bug' : '✨ Feature') + ' de ' + instanceName + '\\n' + title + '\\n\\n' + description.slice(0, 500) + '\\n\\nPor: ' + userName + (userEmail ? ' <' + userEmail + '>' : ''),\n  },\n}];"
+        "mode": "runOnceForAllItems",
+        "jsCode": "// n8n Code node: parse the transport, preserve its binary reference, never fetch.\nconst input = $('Webhook').first();\nconst headers = input.json.headers || {};\nconst contentType = String(headers['content-type'] || '').toLowerCase();\nconst binary = input.binary || {};\nconst keys = Object.keys(binary);\nlet payload = input.json.body;\nlet code;\nlet httpStatus = 422;\nif (contentType.startsWith('multipart/form-data')) {\n  if (!payload || typeof payload.payload !== 'string' || Object.keys(payload).length !== 1 || keys.length !== 1 || keys[0] !== 'attachment') {\n    code = 'invalid_parts';\n  } else {\n    try { payload = JSON.parse(payload.payload); }\n    catch { code = 'invalid_json'; httpStatus = 400; }\n  }\n} else if (/^application\\/json(?:;|$)/.test(contentType)) {\n  if (keys.length) code = 'unexpected_attachment';\n} else {\n  code = 'unsupported_transport';\n  httpStatus = 415;\n}\nif (!code && (!payload || typeof payload !== 'object' || Array.isArray(payload))) code = 'invalid_payload';\nconst legacy = payload?.schema_version === undefined && payload?.request_id === undefined;\nif (!code && keys.length && legacy) code = 'attachment_requires_v2';\nif (code) {\n  const response = { status: 'error', code };\n  if (payload?.schema_version === 2) {\n    response.schema_version = 2;\n    if (typeof payload.request_id === 'string') response.request_id = payload.request_id;\n  }\n  return [{ json: { valid: false, httpStatus, response } }];\n}\nreturn [{ json: { valid: true, payload, legacy, hasAttachment: keys.length === 1 },\n  ...(keys.length ? { binary: { attachment: binary.attachment } } : {}) }];\n"
       }
     },
     {
-      "id": "b5f0c2d3-0005-4a05-9a05-vortexif001",
-      "name": "Spam?",
+      "id": "vortex-intake-valid-transport-",
+      "name": "Valid transport?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [220, 260],
+      "position": [
+        660,
+        240
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -123,8 +109,8 @@
           },
           "conditions": [
             {
-              "id": "d1aa0001-2222-4222-8222-bbbbbbbbbb01",
-              "leftValue": "={{ $json.spam }}",
+              "id": "valid",
+              "leftValue": "={{ $json.valid }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -139,19 +125,271 @@
       }
     },
     {
-      "id": "b6f0c2d3-0006-4a06-9a06-vortexdrop1",
-      "name": "Spam – drop silencioso",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [460, 120],
-      "parameters": {}
+      "id": "vortex-intake-legacy-client-",
+      "name": "Legacy client?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "legacy",
+              "leftValue": "={{ $json.legacy }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vortex-intake-legacy-received",
+      "name": "Legacy received",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        -40
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\":\"received\"}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "vortex-intake-has-attachment-",
+      "name": "Has attachment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "hasAttachment",
+              "leftValue": "={{ $json.hasAttachment }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vortex-intake-deliver-with-attachment",
+      "name": "Deliver with attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.intakeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "payload",
+              "value": "={{ JSON.stringify($json.payload) }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "attachment",
+              "inputDataFieldName": "attachment"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 22000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_INTAKE",
+          "name": "Vortex Intake Internal"
+        }
+      }
+    },
+    {
+      "id": "vortex-intake-deliver-json",
+      "name": "Deliver JSON",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.intakeUrl }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 22000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_INTAKE",
+          "name": "Vortex Intake Internal"
+        }
+      }
+    },
+    {
+      "id": "vortex-intake-validate-confirmation",
+      "name": "Validate confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Never pass through a successful HTTP status without the agreed confirmation.\nconst incoming = $input.first().json;\nconst payload = $('Normalize request').first().json.payload;\nconst hasAttachment = $('Normalize request').first().json.hasAttachment;\nconst v2 = payload?.schema_version !== undefined || payload?.request_id !== undefined;\nlet body = incoming.body;\nif (typeof body === 'string') {\n  try { body = JSON.parse(body); } catch { body = null; }\n}\nconst response = { status: 'error', code: 'intake_unavailable' };\nif (v2) Object.assign(response, { schema_version: 2, request_id: payload.request_id });\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst confirmed = incoming.statusCode === 200 && body?.status === 'completed' &&\n  uuid.test(body.work_item_id || '') && (!hasAttachment || uuid.test(body.attachment_id || '')) &&\n  (!v2 || (body.schema_version === 2 && body.request_id === payload.request_id));\nif (confirmed) return [{ json: { v2, httpStatus: 200, response: body } }];\nif (!v2 && incoming.statusCode === 200 && body?.status === 'ignored') {\n  return [{ json: { v2: false, httpStatus: 200, response: { status: 'ignored' } } }];\n}\nconst allowed = [400, 401, 403, 409, 413, 415, 422, 429, 500, 502, 503, 504];\nconst httpStatus = allowed.includes(incoming.statusCode) ? incoming.statusCode : 502;\nif (body?.status === 'error' && typeof body.code === 'string' && /^[a-z_]{1,64}$/.test(body.code)) response.code = body.code;\nreturn [{ json: { v2, httpStatus, response, retryAfter: httpStatus === 429 ? '720' : '2' } }];\n"
+      }
+    },
+    {
+      "id": "vortex-intake-v2-response-",
+      "name": "V2 response?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1420,
+        240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "v2",
+              "leftValue": "={{ $json.v2 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vortex-intake-respond-to-vortex",
+      "name": "Respond to Vortex",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1540,
+        240
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response) }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "Retry-After",
+                "value": "={{ $json.retryAfter || '0' }}"
+              }
+            ]
+          }
+        }
+      }
     },
     {
       "id": "b7f0c2d3-0007-4a07-9a07-vortextg001",
       "name": "Telegram (desativado)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [460, 340],
+      "position": [
+        0,
+        740
+      ],
       "disabled": true,
       "parameters": {
         "resource": "message",
@@ -172,7 +410,10 @@
       "name": "Email (desativado)",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [700, 340],
+      "position": [
+        280,
+        740
+      ],
       "disabled": true,
       "parameters": {
         "fromEmail": "noreply@CHANGE-ME.example",
@@ -188,41 +429,6 @@
           "name": "SMTP Vortex intake"
         }
       }
-    },
-    {
-      "id": "b9f0c2d3-0009-4a09-9a09-vortexpln001",
-      "name": "Criar issue no Plane",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [940, 340],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $('Config').first().json.planeBaseUrl }}/api/v2/workspaces/{{ $('Config').first().json.planeWorkspaceSlug }}/projects/{{ $('Config').first().json.planeProjectId }}/work-items/",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-Api-Key",
-              "value": "={{ $('Config').first().json.planeApiKey }}"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ ...$json.planeIssue, label_ids: [$json.type === 'bug' ? $('Config').first().json.planeLabelBugId : $('Config').first().json.planeLabelFeatureId].filter(Boolean) }) }}",
-        "options": {}
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 2000
-    },
-    {
-      "id": "baf0c2d3-000a-4a0a-9a0a-vortexok0001",
-      "name": "Issue criada",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [1180, 340],
-      "parameters": {}
     }
   ],
   "connections": {
@@ -230,69 +436,138 @@
       "main": [
         [
           {
-            "node": "Anti-spam & prepare",
+            "node": "Config",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Anti-spam & prepare": {
+    "Config": {
       "main": [
         [
           {
-            "node": "Spam?",
+            "node": "Normalize request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Spam?": {
+    "Normalize request": {
       "main": [
         [
           {
-            "node": "Spam – drop silencioso",
+            "node": "Valid transport?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid transport?": {
+      "main": [
+        [
+          {
+            "node": "Legacy client?",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Telegram (desativado)",
+            "node": "Respond to Vortex",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Telegram (desativado)": {
+    "Legacy client?": {
       "main": [
         [
           {
-            "node": "Email (desativado)",
+            "node": "Legacy received",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has attachment?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Email (desativado)": {
+    "Legacy received": {
       "main": [
         [
           {
-            "node": "Criar issue no Plane",
+            "node": "Has attachment?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Criar issue no Plane": {
+    "Has attachment?": {
       "main": [
         [
           {
-            "node": "Issue criada",
+            "node": "Deliver with attachment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deliver JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver with attachment": {
+      "main": [
+        [
+          {
+            "node": "Validate confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver JSON": {
+      "main": [
+        [
+          {
+            "node": "Validate confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate confirmation": {
+      "main": [
+        [
+          {
+            "node": "V2 response?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "V2 response?": {
+      "main": [
+        [
+          {
+            "node": "Respond to Vortex",
             "type": "main",
             "index": 0
           }
@@ -301,7 +576,10 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
   },
   "meta": {
     "templateCredsSetupCompleted": false

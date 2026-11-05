@@ -44,6 +44,40 @@ services:
       - 8.8.8.8
       - 1.1.1.1
 
+  # Synchronous feedback delivery. No host port; only the authenticated n8n
+  # workflow calls this adapter. Never scale it or discard its ledger volume.
+  vortex-intake:
+    image: node:24-alpine
+    container_name: vortex-intake
+    restart: always
+    init: true
+    stop_grace_period: 35s
+    environment:
+      - VORTEX_INTAKE_TOKEN=${VORTEX_INTAKE_TOKEN}
+      - VORTEX_INTAKE_PLANE_URL=${VORTEX_INTAKE_PLANE_URL}
+      - VORTEX_INTAKE_PLANE_WORKSPACE=${VORTEX_INTAKE_PLANE_WORKSPACE}
+      - VORTEX_INTAKE_PLANE_PROJECT=${VORTEX_INTAKE_PLANE_PROJECT}
+      - VORTEX_INTAKE_PLANE_API_KEY=${VORTEX_INTAKE_PLANE_API_KEY}
+      - VORTEX_INTAKE_BUG_LABEL=${VORTEX_INTAKE_BUG_LABEL}
+      - VORTEX_INTAKE_FEATURE_LABEL=${VORTEX_INTAKE_FEATURE_LABEL}
+      - VORTEX_INTAKE_STORAGE_ORIGINS=${VORTEX_INTAKE_STORAGE_ORIGINS}
+    volumes:
+      - vortex_intake_data:/data
+      - ../files/vortex-intake/adapter:/app:ro
+    working_dir: /app
+    command: ["node", "server.mjs"]
+    networks:
+      - nginx-proxy-network
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8086/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ─── Vortex announcements ─────────────────────────────────────────────────
   # Publisher sidecar: owns the vortex_feed volume and performs atomic feed
   # replacements for the n8n workflow "Vortex Announcements Publisher".
@@ -94,5 +128,6 @@ networks:
 
 volumes:
   n8n_data:
+  vortex_intake_data:
   # Owned by vortex-publisher; mounted read-only into vortex-feed.
   vortex_feed:

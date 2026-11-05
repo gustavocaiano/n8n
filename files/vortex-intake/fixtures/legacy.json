@@ -1,0 +1,16 @@
+{
+  "type": "bug",
+  "title": "Teste de anexo",
+  "description": "Um exemplo local, sem dados pessoais.",
+  "version": "3.1.0",
+  "instance": {
+    "name": "NUC de teste",
+    "url": "https://nuc.invalid"
+  },
+  "user": {
+    "name": "Utilizador de teste",
+    "username": "teste"
+  },
+  "reported_at": "2026-11-05T12:00:00+00:00",
+  "website": ""
+}

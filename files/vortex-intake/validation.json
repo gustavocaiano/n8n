@@ -1,0 +1,127 @@
+{
+  "date": "2026-11-05",
+  "workflow": "workflows/vortex-intake.workflow.json",
+  "sha256": "fc2b4d40a6680aa1b40e911e61d5f74914d0e41c4b9a197dba0706ba4d334a65",
+  "publication": "not-published",
+  "runtimeExecution": "none",
+  "nodeSchemaValidation": {
+    "valid": true,
+    "results": [
+      {
+        "index": 0,
+        "name": "Sticky Note - Setup",
+        "type": "n8n-nodes-base.stickyNote",
+        "valid": true
+      },
+      {
+        "index": 1,
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "valid": true
+      },
+      {
+        "index": 2,
+        "name": "Config",
+        "type": "n8n-nodes-base.set",
+        "valid": true
+      },
+      {
+        "index": 3,
+        "name": "Normalize request",
+        "type": "n8n-nodes-base.code",
+        "valid": true
+      },
+      {
+        "index": 4,
+        "name": "Valid transport?",
+        "type": "n8n-nodes-base.if",
+        "valid": true
+      },
+      {
+        "index": 5,
+        "name": "Legacy client?",
+        "type": "n8n-nodes-base.if",
+        "valid": true
+      },
+      {
+        "index": 6,
+        "name": "Legacy received",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "valid": true
+      },
+      {
+        "index": 7,
+        "name": "Has attachment?",
+        "type": "n8n-nodes-base.if",
+        "valid": true
+      },
+      {
+        "index": 8,
+        "name": "Deliver with attachment",
+        "type": "n8n-nodes-base.httpRequest",
+        "valid": true
+      },
+      {
+        "index": 9,
+        "name": "Deliver JSON",
+        "type": "n8n-nodes-base.httpRequest",
+        "valid": true
+      },
+      {
+        "index": 10,
+        "name": "Validate confirmation",
+        "type": "n8n-nodes-base.code",
+        "valid": true
+      },
+      {
+        "index": 11,
+        "name": "V2 response?",
+        "type": "n8n-nodes-base.if",
+        "valid": true
+      },
+      {
+        "index": 12,
+        "name": "Respond to Vortex",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "valid": true
+      },
+      {
+        "index": 13,
+        "name": "Telegram (desativado)",
+        "type": "n8n-nodes-base.telegram",
+        "valid": true
+      },
+      {
+        "index": 14,
+        "name": "Email (desativado)",
+        "type": "n8n-nodes-base.emailSend",
+        "valid": true
+      }
+    ]
+  },
+  "workflowSdkValidation": {
+    "valid": true,
+    "nodeCount": 15,
+    "warnings": [
+      {
+        "code": "DISCONNECTED_NODE",
+        "message": "'Telegram (desativado)' [n8n-nodes-base.telegram] is not connected to any input. It will not receive data.",
+        "nodeName": "Telegram (desativado)"
+      },
+      {
+        "code": "DISCONNECTED_NODE",
+        "message": "'Email (desativado)' [n8n-nodes-base.emailSend] is not connected to any input. It will not receive data.",
+        "nodeName": "Email (desativado)"
+      }
+    ]
+  },
+  "notes": [
+    "Read-only n8n MCP validate_node_config and validate_workflow; no create/update/execute/publish calls.",
+    "SDK validated a graph generated from the candidate JSON with representative output samples.",
+    "The only workflow warnings are the intentionally disconnected and disabled notification templates.",
+    "52 local tests; Plane/storage mocked, HTTP restricted to loopback.",
+    "Real Vortex FeedbackService fixtures json/png/txt parsed without network.",
+    "Compose config --quiet, generated workflow --check, and git diff --check passed.",
+    "Installed n8n package version, real Plane token permissions/storage access and production proxy limits require staging preflight."
+  ]
+}

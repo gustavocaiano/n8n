@@ -1,0 +1,109 @@
+[
+  {
+    "http_status": 200,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "completed",
+      "work_item_id": "8f4c2b1e-0d3a-4f7b-9c21-6e5a8b7d4f13",
+      "attachment_id": null
+    },
+    "vortex_accepts": true
+  },
+  {
+    "http_status": 200,
+    "body": {
+      "message": "Workflow was started"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 202,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "accepted"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 409,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "request_id_conflict"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 413,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "attachment_too_large"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 415,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "attachment_content_mismatch"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 422,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "invalid_title"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 429,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "rate_limited"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 502,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "plane_unavailable"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 503,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "issue_outcome_unknown"
+    },
+    "vortex_accepts": false
+  },
+  {
+    "http_status": 504,
+    "body": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "error",
+      "code": "delivery_timeout"
+    },
+    "vortex_accepts": false
+  }
+]

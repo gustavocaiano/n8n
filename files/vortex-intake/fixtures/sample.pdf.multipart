@@ -1,0 +1,31 @@
+--vortex-offline-contract-boundary
+Content-Disposition: form-data; name="payload"
+
+{"schema_version": 2, "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11", "type": "bug", "title": "Teste de anexo", "description": "Um exemplo local, sem dados pessoais.", "version": "3.1.0", "instance": {"name": "NUC de teste", "url": "https://nuc.invalid"}, "user": {"name": "Utilizador de teste", "username": "teste"}, "reported_at": "2026-11-05T12:00:00+00:00", "website": ""}
+--vortex-offline-contract-boundary
+Content-Disposition: form-data; name="attachment"; filename="sample.pdf"
+Content-Type: application/pdf
+
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>
+endobj
+xref
+0 4
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+trailer
+<< /Size 4 /Root 1 0 R >>
+startxref
+186
+%%EOF
+
+--vortex-offline-contract-boundary--

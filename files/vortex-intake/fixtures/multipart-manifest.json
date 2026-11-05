@@ -1,0 +1,54 @@
+[
+  {
+    "name": "sample.png",
+    "mime": "image/png",
+    "payload": "v2.json",
+    "body": "sample.png.multipart",
+    "content_type": "multipart/form-data; boundary=vortex-offline-contract-boundary",
+    "expected_http_status": 200,
+    "expected_response": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "completed"
+    }
+  },
+  {
+    "name": "sample.jpg",
+    "mime": "image/jpeg",
+    "payload": "v2.json",
+    "body": "sample.jpg.multipart",
+    "content_type": "multipart/form-data; boundary=vortex-offline-contract-boundary",
+    "expected_http_status": 200,
+    "expected_response": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "completed"
+    }
+  },
+  {
+    "name": "sample.pdf",
+    "mime": "application/pdf",
+    "payload": "v2.json",
+    "body": "sample.pdf.multipart",
+    "content_type": "multipart/form-data; boundary=vortex-offline-contract-boundary",
+    "expected_http_status": 200,
+    "expected_response": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "completed"
+    }
+  },
+  {
+    "name": "sample.txt",
+    "mime": "text/plain",
+    "payload": "v2.json",
+    "body": "sample.txt.multipart",
+    "content_type": "multipart/form-data; boundary=vortex-offline-contract-boundary",
+    "expected_http_status": 200,
+    "expected_response": {
+      "schema_version": 2,
+      "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
+      "status": "completed"
+    }
+  }
+]
