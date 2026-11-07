@@ -141,21 +141,32 @@ n8n e o workflow **não mudam** (o token nunca passa pelo n8n).
 
 ### NPM e Cloudflare (Gustavo)
 
-Proxy host (ou Custom Location `/vortex-logs/`) → `http://<IP do LXC 110>:8087`,
-SSL forçado + HSTS. Em *Advanced*:
+Produção (2026-11-07): links ligados em `https://vortex-logs.nforensic.site/`, listener
+`10.1.6.8:8087`, só aceita o NPMplus (LXC 100, `10.1.6.16`). O tráfego público entra
+pelo **Cloudflare Tunnel** (`cloudflared` no LXC 100) e segue para o NPMplus.
+Não usar um caminho em `nodemation`: esse host já tem `location ^~ /vortex` → `10.1.6.8:80`,
+que apanharia `/vortex-logs/`.
+
+1. **Cloudflare Zero Trust → Networks → Tunnels →** o túnel do LXC 100 → *Public
+   hostnames* → adicionar `vortex-logs.nforensic.site` com o **mesmo Service** que
+   `nodemation.nforensic.site` (o DNS CNAME é criado automaticamente).
+2. **NPMplus → Proxy Hosts → Add:** domínio `vortex-logs.nforensic.site`, scheme `http`,
+   `10.1.6.8`, porta `8087`. Sem *Cache Assets*, sem *Websockets*, sem *Access List*
+   necessária. SSL: o certificado wildcard `*.nforensic.site` existente, Force SSL.
+   *Advanced*:
 
 ```nginx
 client_max_body_size 4k;
 proxy_buffering off;
 proxy_read_timeout 65s;
-proxy_set_header X-Forwarded-Proto https;
 ```
 
+O adaptador aceita `X-Forwarded-Proto: https` ou o `CF-Visitor` `{"scheme":"https"}`
+enviado pela Cloudflare (o túnel pode chegar ao NPM por HTTP); recusa com 421 o resto.
 `proxy_buffering off` aproxima "o adaptador terminou de enviar" de "o cliente recebeu".
-O token não aparece no URL pedido, por isso os access logs não o contêm; desligar o
-access log deste host é opcional. Na Cloudflare: regra de cache *Bypass* para o host/
-caminho e sem Rocket Loader/Zaraz/Web Analytics injetados (a CSP bloqueia scripts
-alheios e `no-transform` pede para não alterar a resposta).
+O token não aparece no URL pedido, por isso os access logs não o contêm. Opcional na
+Cloudflare: regra de cache *Bypass* para o host (as respostas já são `no-store`) e sem
+Rocket Loader/Zaraz/Web Analytics (a CSP bloqueia scripts alheios).
 
 ### Verificação sem Plane e sem logs reais
 

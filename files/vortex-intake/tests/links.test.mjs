@@ -370,3 +370,12 @@ test('page script: strips the fragment, checks status without consuming, redeems
   assert.match(elements.state.textContent, /Entregue e verificado/);
   assert.equal(await ctx.state(ctx.token), 'used');
 });
+test('download: behind a Cloudflare tunnel, CF-Visitor https is accepted; http is refused', async (t) => {
+  const ctx = await serve(t, await linked(t));
+  const status = (headers) => fetch(`${ctx.base}status`, { method: 'POST', body: `token=${ctx.token}`,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...headers } }).then((r) => r.status);
+  assert.equal(await status({ 'X-Forwarded-Proto': 'http', 'CF-Visitor': '{"scheme":"https"}' }), 200);
+  assert.equal(await status({ 'X-Forwarded-Proto': 'http', 'CF-Visitor': '{"scheme":"http"}' }), 421);
+  assert.equal(await status({ 'CF-Visitor': 'not json' }), 421);
+  assert.equal(await ctx.state(ctx.token), 'available');
+});
