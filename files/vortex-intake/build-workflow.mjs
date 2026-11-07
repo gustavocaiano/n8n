@@ -43,7 +43,7 @@ function http(name, parts, y) {
   }, 1280, y, { retryOnFail: false, onError: 'continueRegularOutput' });
 }
 const note = original('Sticky Note - Setup');
-note.parameters.content = '## Vortex feedback v2 → Plane\n\nLocal candidate — NOT PUBLISHED.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.';
+note.parameters.content = '## Vortex feedback v2 → Plane\n\nSynchronous v2 + private logs. Production status: files/vortex-intake/deployment-status.md.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.';
 note.position = [0, -220];
 note.parameters.width = 720;
 note.parameters.height = 380;
@@ -80,7 +80,7 @@ edge('Attachment and logs?', 'Deliver attachment and logs'); edge('Attachment an
 for (const name of ['Deliver attachment and logs', 'Deliver with attachment', 'Deliver logs', 'Deliver JSON']) edge(name, 'Validate confirmation');
 edge('Validate confirmation', 'V2 response?'); edge('V2 response?', 'Respond to Vortex');
 const candidate = { name: current.name, nodes, connections,
-  settings: { executionOrder: 'v1', saveDataSuccessExecution: 'none', saveDataErrorExecution: 'none', saveManualExecutions: false },
+  settings: { executionOrder: 'v1', saveDataSuccessExecution: 'none', saveDataErrorExecution: 'none', saveManualExecutions: false, saveExecutionProgress: false },
   meta: { templateCredsSetupCompleted: false } };
 const output = JSON.stringify(candidate, null, 2) + '\n';
 if (process.argv.includes('--check')) {

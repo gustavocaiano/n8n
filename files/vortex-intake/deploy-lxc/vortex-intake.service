@@ -1,0 +1,28 @@
+[Unit]
+Description=Vortex feedback intake (private synchronous Plane adapter)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vortex-intake
+Group=vortex-intake
+WorkingDirectory=/opt/vortex-intake
+EnvironmentFile=/etc/vortex-intake/adapter.env
+EnvironmentFile=/etc/vortex-intake/token.env
+ExecStart=/usr/bin/node /opt/vortex-intake/server.mjs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=65
+UMask=0077
+StateDirectory=vortex-intake
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/vortex-intake
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

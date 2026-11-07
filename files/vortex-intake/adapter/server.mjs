@@ -91,10 +91,12 @@ export function configFromEnv(env) {
     bugLabel: env.VORTEX_INTAKE_BUG_LABEL,
     featureLabel: env.VORTEX_INTAKE_FEATURE_LABEL,
     token: env.VORTEX_INTAKE_TOKEN,
+    listenHost: env.VORTEX_INTAKE_LISTEN_HOST || '127.0.0.1',
     directory: env.VORTEX_INTAKE_DATA_DIR || '/data',
     projectIdentifier: env.VORTEX_INTAKE_PLANE_PROJECT_IDENTIFIER || 'VORTEX',
     logsRetentionDays: Number(env.VORTEX_INTAKE_LOGS_RETENTION_DAYS || DEFAULT_RETENTION_DAYS),
   };
+  if (!['127.0.0.1', '0.0.0.0'].includes(config.listenHost)) throw new Error('Invalid intake listen host');
   if (!/^[A-Z][A-Z0-9]*$/.test(config.projectIdentifier)) throw new Error('Invalid Plane project identifier');
   if (!Number.isInteger(config.logsRetentionDays) || config.logsRetentionDays < 1) throw new Error('Invalid logs retention');
   if (!config.baseUrl || !config.workspace || !config.project || !config.apiKey || !config.token ||
@@ -120,7 +122,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     setInterval(prune, 86_400_000).unref();
     const intake = new Intake(ledger, new PlaneClient(config), config, 20_000, { logStore });
     const server = createIntakeServer(intake, config.token);
-    server.listen(8086, '0.0.0.0', () => console.log('vortex-intake listening on :8086'));
+    server.listen(8086, config.listenHost, () => console.log(`vortex-intake listening on ${config.listenHost}:8086`));
     for (const event of ['SIGTERM', 'SIGINT']) process.on(event, () => {
       server.close(() => { ledger.close(); process.exit(0); });
     });

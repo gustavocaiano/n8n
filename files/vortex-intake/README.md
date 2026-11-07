@@ -1,6 +1,6 @@
 # Vortex feedback intake v2
 
-**Candidato local, não publicado.** Mantém `/webhook/vortex-feedback` e a credencial
+**Publicado e verificado em 2026-11-07** ([evidência](deployment-status.md)). Mantém `/webhook/vortex-feedback` e a credencial
 pública `X-Vortex-Feedback-Token`. O Vortex não precisa de URL pública nem de
 credenciais do Plane. O único destino funcional continua a ser Plane,
 workspace `novaforensic`, projeto `VORTEX`.
@@ -11,7 +11,8 @@ workspace `novaforensic`, projeto `VORTEX`.
 - `build-workflow.mjs`, `normalize.js`, `response.js`: configuração e fontes dos Code nodes.
 - `adapter/{server,contract,ledger,plane,intake,logstore}.mjs`: adaptador HTTP síncrono,
   validação, SQLite, entrega/recuperação no Plane e armazenamento privado dos logs.
-- `../../plane/compose.yml`, `../../plane/.env.example`: serviço privado e configuração.
+- `deploy-lxc/`: instalação nativa systemd no LXC de produção (ver [runbook](deploy-lxc/README.md)).
+- `../../plane/compose.yml`, `../../plane/.env.example`: alternativa para instalações Docker.
 - `tests/`: testes offline, incluindo HTTP apenas em loopback e Plane/storage falsos.
 - `fixtures/`: JSON legacy/v2, quatro ficheiros reais, corpos multipart e respostas.
 - `verify-vortex-fixtures.mjs`: verifica os bytes exportados pelo serviço PHP real.
@@ -56,7 +57,7 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 - O sha256 dos logs entra no fingerprint: o Vortex congela o snapshot por rascunho.
   Bytes diferentes com o mesmo UUID → 409 `request_id_conflict`.
 - **Os logs nunca vão para o Plane.** Ordem: cria o ticket → grava
-  `/data/logs/<IDENT>-<seq>_<request_id>.txt` (0600, diretório 0700, write+fsync+rename+
+  `<data-dir>/logs/<IDENT>-<seq>_<request_id>.txt` (0600, diretório 0700, write+fsync+rename+
   fsync do diretório; mesmo nome com bytes diferentes nunca é sobrescrito) → PATCH da
   descrição do ticket com a nota "Logs: 48 h, N bytes, truncado: sim/não; guardados no
   n8n: `VORTEX-14_<uuid>.txt`" (substituição completa, repetível) → anexo do utilizador,
@@ -69,15 +70,11 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 
 #### Ir buscar os logs de um ticket
 
-Não há endpoint HTTP; o diretório só existe no volume `vortex_intake_data`. No host
-do stack (`docker` com acesso ao contentor `vortex-intake`):
-
-```sh
-# listar
-ssh <host-n8n> docker exec vortex-intake ls -l /data/logs
-# copiar os logs do VORTEX-14 para a máquina local
-ssh <host-n8n> "docker exec vortex-intake sh -c 'cat /data/logs/VORTEX-14_*.txt'" > VORTEX-14-logs.txt
-```
+Não há endpoint HTTP. Em produção os snapshots ficam no LXC em
+`/var/lib/vortex-intake/logs/`, acessíveis ao utilizador do serviço e a root.
+O [runbook LXC](deploy-lxc/README.md#ir-buscar-logs) explica como listar/copiar um
+ficheiro exato via `server03` / `pct exec 110`. Na alternativa Docker, o diretório
+é `/data/logs` no volume `vortex_intake_data`.
 
 ### Saída v2
 
@@ -135,7 +132,7 @@ Ativação futura requer atualizar expressões e ligar depois da conclusão com
 tratamento de falha independente; não basta clicar Enable.
 
 O adaptador é um processo Node24 sem dependências npm. SQLite nativo (`node:sqlite`)
-num volume Docker mantém fingerprint, etapa, IDs e, temporariamente, formulário
+em armazenamento persistente mantém fingerprint, etapa, IDs e, temporariamente, formulário
 assinado de upload. Não guarda texto do pedido nem bytes do anexo. Não há fila,
 worker, poller, aceitação em background ou dependência do histórico n8n.
 
@@ -189,7 +186,16 @@ SQLite online. Os formulários assinados são removidos do estado após conclus�
 o diretório tem modo0700 e o processo usa umask0077. Não imprimir o campo `state`
 inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request_id.
 
-## Rollout (não executado)
+## Rollout
+
+**Produção: LXC Proxmox + systemd**, sem Docker. Seguir o
+[runbook nativo](deploy-lxc/README.md), que inclui preflight, instalação, verificação,
+publicação e rollback. O adaptador usa loopback por omissão; não expor a porta8086
+no NPM nem na rede. Ver `deployment-status.md` para a evidência do rollout.
+
+### Alternativa Docker
+
+Os passos seguintes aplicam-se apenas a instalações Docker:
 
 1. Rever este diff e a compatibilidade Vortex. Exportar/backupar a versão atualmente
    publicada em n8n, incluindo bindings de credenciais. Não importar por cima sem
@@ -221,7 +227,7 @@ inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request
    v2 recusará o202 antigo: publicar primeiro o cliente causa erros visíveis, não
    falso sucesso. A revisão de compatibilidade/publicação pertence à thread Vortex.
 
-### Rollback
+### Rollback Docker
 
 Reverter a publicação n8n usando o backup, mantendo caminho/token, e reverter ou
 indisponibilizar o formulário v2 coordenadamente: v2 não aceitará ACK202 do antigo.
@@ -238,7 +244,7 @@ node files/vortex-intake/build-workflow.mjs --check
 node --test files/vortex-intake/tests/*.test.mjs
 docker compose --env-file plane/.env.example -f plane/compose.yml config --quiet
 git diff --check
-node files/vortex-intake/verify-vortex-fixtures.mjs /home/gustavocaiano/.t3/worktrees/vortex/t3-5e85ae24/storage/framework/testing/feedback-contract
+node files/vortex-intake/verify-vortex-fixtures.mjs /path/to/vortex/storage/framework/testing/feedback-contract
 ```
 
 O último comando requer as fixtures geradas pelo exporter PHP do Vortex. Não altera
@@ -249,9 +255,8 @@ Os ficheiros binários estão incluídos; executar testes não requer Pillow/Pyt
 
 Testes cobrem validação, limite exato, HTML, contrato real HTTP (loopback), pipeline
 Plane/storage com mocks, schema de resposta, crash/restart, resultado ambíguo,
-concorrência, replay, expiração e perda de confirmação. Não houve chamada de webhook,
-execução/publicação n8n ou criação de issue/anexo real. A versão do pacote n8n e o
-storage/escopos efetivos da instalação ainda precisam de preflight em staging.
+concorrência, replay, expiração e perda de confirmação. Estes testes são offline; a evidência de validação no LXC e na instância real
+fica separada em `deployment-status.md`.
 
 ## Fontes de compatibilidade
 

@@ -1,5 +1,6 @@
-# n8n (Plane/GitLab integration instance) behind the existing Nginx Proxy Manager.
-# On the host, NPM runs from ~/npm/docker-compose.yml and owns the
+# Optional Docker deployment. Production uses a Proxmox LXC with systemd;
+# see files/vortex-intake/deploy-lxc/README.md. Do not run this stack in that LXC.
+# For Docker, NPM runs from ~/npm/docker-compose.yml and owns the
 # `nginx-proxy-network` bridge (literal name). Start NPM first, then this stack.
 # In NPM, add a Proxy Host forwarding to `n8n-plane:5678` (container name =
 # DNS name on the shared network).
@@ -59,6 +60,7 @@ services:
     init: true
     stop_grace_period: 55s
     environment:
+      - VORTEX_INTAKE_LISTEN_HOST=0.0.0.0
       - VORTEX_INTAKE_TOKEN=${VORTEX_INTAKE_TOKEN}
       - VORTEX_INTAKE_PLANE_URL=${VORTEX_INTAKE_PLANE_URL}
       - VORTEX_INTAKE_PLANE_WORKSPACE=${VORTEX_INTAKE_PLANE_WORKSPACE}
