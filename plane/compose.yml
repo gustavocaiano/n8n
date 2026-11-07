@@ -30,6 +30,12 @@ services:
       #   X-Publisher-Token
       - VORTEX_PUBLISH_TOKEN=${VORTEX_PUBLISH_TOKEN}
       - VORTEX_SIDECAR_TOKEN=${VORTEX_SIDECAR_TOKEN}
+      # Vortex feedback intake (files/vortex-intake/README.md):
+      # - VORTEX_INTAKE_PLANE_API_KEY: used by the v1 workflow (Config node)
+      # - VORTEX_INTAKE_TOKEN: X-Vortex-Intake-Token the v2 workflow sends to
+      #   the private vortex-intake adapter (same value as in that service)
+      - VORTEX_INTAKE_PLANE_API_KEY=${VORTEX_INTAKE_PLANE_API_KEY}
+      - VORTEX_INTAKE_TOKEN=${VORTEX_INTAKE_TOKEN}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local-files:/files

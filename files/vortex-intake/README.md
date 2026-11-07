@@ -208,10 +208,12 @@ inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request
 4. Subir apenas o serviço privado `vortex-intake` no compose existente; não tem
    porta publicada. Preservar o volume `vortex_intake_data`. A healthcheck verifica
    o processo/configuração/abertura SQLite, não credenciais remotas ou storage.
-5. Importar/reconciliar o workflow local; ligar a credencial pública original e
-   criar `Vortex Intake Internal`, Header Auth `X-Vortex-Intake-Token` igual ao
-   `VORTEX_INTAKE_TOKEN`. Não usar o token público nesse binding. Manter URL do
-   adaptador interna e notificações desativadas.
+5. Pôr o mesmo `VORTEX_INTAKE_TOKEN` no ambiente do `n8n-plane` (recriar o contentor:
+   breve indisponibilidade de todos os workflows) e do `vortex-intake`. Os nós
+   `Deliver *` enviam `X-Vortex-Intake-Token: {{ $env.VORTEX_INTAKE_TOKEN }}`, o mesmo
+   padrão de `$env.VORTEX_INTAKE_PLANE_API_KEY` na v1; não há credencial n8n extra.
+   Atualizar o workflow existente `ILGYB3HmUcG5Fz4g` (nunca importar um segundo com o
+   mesmo path) mantendo a credencial pública `Vortex Shared Secret` no Webhook.
 6. Em staging isolado e autorizado, verificar o parser multipart/nomes binários,
    APIs e permissões do Plane/storage reais, schemas HTTP4.2/Respond1.5/Webhook2.1,
    reinício e timeout. A leitura de schemas remota não executa nem testa esses APIs.

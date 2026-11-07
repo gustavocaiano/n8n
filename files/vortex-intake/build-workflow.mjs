@@ -30,18 +30,20 @@ function http(name, parts, y) {
   const timeout = parts.includes('logs') ? 50000 : 22000;
   return node(name, 'httpRequest', 4.2, {
     method: 'POST', url: "={{ $('Config').first().json.intakeUrl }}",
-    authentication: 'genericCredentialType', genericAuthType: 'httpHeaderAuth', sendBody: true,
+    // Same pattern as the Plane key: the value lives in the n8n container env, never in JSON.
+    sendHeaders: true, headerParameters: { parameters: [
+      { name: 'X-Vortex-Intake-Token', value: '={{ $env.VORTEX_INTAKE_TOKEN }}' },
+    ] }, sendBody: true,
     ...(multipart ? { contentType: 'multipart-form-data', bodyParameters: { parameters: [
       { parameterType: 'formData', name: 'payload', value: '={{ JSON.stringify($json.payload) }}' },
       ...parts.map((part) => ({ parameterType: 'formBinaryData', name: part, inputDataFieldName: part })),
     ] } } : { contentType: 'json', specifyBody: 'json', jsonBody: '={{ JSON.stringify($json.payload) }}' }),
     options: { timeout, redirect: { redirect: { followRedirects: false } },
       response: { response: { fullResponse: true, neverError: true, responseFormat: 'json' } } },
-  }, 1280, y, { retryOnFail: false, onError: 'continueRegularOutput',
-    credentials: { httpHeaderAuth: { id: 'REPLACE_ME_INTAKE', name: 'Vortex Intake Internal' } } });
+  }, 1280, y, { retryOnFail: false, onError: 'continueRegularOutput' });
 }
 const note = original('Sticky Note - Setup');
-note.parameters.content = '## Vortex feedback v2 → Plane\n\nLocal candidate — NOT PUBLISHED.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nConfigure Vortex Shared Secret and Vortex Intake Internal (X-Vortex-Intake-Token).\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.';
+note.parameters.content = '## Vortex feedback v2 → Plane\n\nLocal candidate — NOT PUBLISHED.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.';
 note.position = [0, -220];
 note.parameters.width = 720;
 note.parameters.height = 380;
