@@ -29,6 +29,9 @@ fi
 if [ -n "$(ss -H -ltn 'sport = :8086')" ]; then
   systemctl is-active --quiet vortex-intake.service || fail 'port 8086 has an unmanaged adapter'
 fi
+if [ -n "$(ss -H -ltn 'sport = :8087')" ]; then
+  systemctl is-active --quiet vortex-intake.service || fail 'port 8087 (logs links) is used by another service'
+fi
 systemd-analyze verify "$SRC/deploy-lxc/vortex-intake.service"
 [ "$MODE" = --apply ] || { echo 'Preflight OK; no files or services changed'; exit 0; }
 
@@ -58,6 +61,7 @@ install -d -m 755 /opt/vortex-intake
 install -d -m 700 /etc/vortex-intake
 install -d -m 700 -o vortex-intake -g vortex-intake /var/lib/vortex-intake
 install -m 644 "$SRC"/adapter/*.mjs /opt/vortex-intake/
+install -m 644 "$SRC/deploy-lxc/verify-links.mjs" /opt/vortex-intake/
 node "$SRC/deploy-lxc/configure.mjs" --apply "$ENV_FILE"
 install -m 644 "$SRC/deploy-lxc/vortex-intake.service" /etc/systemd/system/vortex-intake.service
 install -d -m 755 /etc/systemd/system/n8n.service.d

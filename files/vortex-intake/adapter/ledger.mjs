@@ -13,7 +13,7 @@ export class Ledger {
     try {
       this.owner.exec('BEGIN EXCLUSIVE');
       this.db = new DatabaseSync(join(directory, 'intake.sqlite'));
-      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
         CREATE TABLE IF NOT EXISTS requests (key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, state TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS buckets (key TEXT PRIMARY KEY, tokens REAL NOT NULL, ts INTEGER NOT NULL);`);
     } catch (error) {

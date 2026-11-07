@@ -11,6 +11,7 @@ workspace `novaforensic`, projeto `VORTEX`.
 - `build-workflow.mjs`, `normalize.js`, `response.js`: configuração e fontes dos Code nodes.
 - `adapter/{server,contract,ledger,plane,intake,logstore}.mjs`: adaptador HTTP síncrono,
   validação, SQLite, entrega/recuperação no Plane e armazenamento privado dos logs.
+- `adapter/{links,download}.mjs`: links de utilização única para os logs (opcional).
 - `deploy-lxc/`: instalação nativa systemd no LXC de produção (ver [runbook](deploy-lxc/README.md)).
 - `../../plane/compose.yml`, `../../plane/.env.example`: alternativa para instalações Docker.
 - `tests/`: testes offline, incluindo HTTP apenas em loopback e Plane/storage falsos.
@@ -65,13 +66,52 @@ A alteração preexistente `user.username` foi preservada na nova normalização
   se existir → `completed`. A ledger guarda só a etapa e o nome, nunca o conteúdo.
 - Resposta: `logs_ref` com o nome do ficheiro (ou `null`); opcional para o Vortex,
   mas o gate n8n exige-o, com o mesmo request_id, quando houve logs.
-- Retenção: **90 dias** (`VORTEX_INTAKE_LOGS_RETENTION_DAYS`), limpeza no arranque e
-  a cada 24 h por mtime. A nota no Plane fica; o ficheiro desaparece. Temporários
-  de escritas interrompidas são removidos após 1 h.
+- Retenção (ver também [links](#links-de-utilização-única)):
+  - Ficheiros **com link** (criados com links ligados): apagados logo após a entrega,
+    ou ao fim de **15 dias** sem uso (`VORTEX_INTAKE_LOGS_LINK_TTL_DAYS`, 1–15).
+  - Ficheiros **sem link** (todos os existentes antes desta versão, ou com links
+    desligados): mantêm **90 dias** por mtime (`VORTEX_INTAKE_LOGS_RETENTION_DAYS`).
+    Esta versão **não apaga mais cedo** nenhum ficheiro já existente; reduzir esse
+    prazo é uma decisão explícita do Gustavo (editar o valor e reiniciar).
+  - Limpeza no arranque e a cada hora. A nota no Plane fica; o ficheiro desaparece.
+    Temporários de escritas interrompidas são removidos após 1 h.
+
+#### Links de utilização única
+
+Desligados por omissão (`VORTEX_INTAKE_LOGS_LINK_BASE` vazio). Quando ligados, cada
+novo pedido com logs acrescenta à nota existente (que se mantém igual) um link
+`<base>#t=<token>`:
+
+- Token: 32 bytes de `crypto.randomBytes` (256 bits), base64url. A BD guarda só o
+  SHA-256, o nome exato do ficheiro, tamanho, sha256 do conteúdo e expiração. O
+  ficheiro é escolhido pela linha da BD, nunca pelo URL nem pelo número do ticket
+  (VRTX vs VORTEX é irrelevante; não há path traversal possível).
+- O token vai no **fragmento** (`#`): browsers não o enviam ao servidor, por isso não
+  aparece em access logs do NPM/Cloudflare, nem em `Referer`; a página remove-o da
+  barra de endereço antes de outros scripts. O token nunca passa pelo n8n (o
+  adaptador escreve a nota diretamente no Plane) nem pela resposta ao Vortex.
+- `GET`/`HEAD` da página **nunca consomem** (pré-visualizadores, scanners, crawlers).
+  A página consulta `POST <base>status` (não consome) e só com o clique em
+  «Descarregar» faz `POST <base>redeem`, verifica tamanho + sha256 e grava o ficheiro.
+- Concorrência: claim atómico em SQLite (`active → delivering`); pedidos paralelos
+  recebem 409 `link_in_use`; só um recebe 200.
+- Interrupção: se o socket recusar bytes antes do fim (cliente desligou), o link volta
+  a `active`. Se todos os bytes foram entregues ao kernel/proxy, fica `used` e o
+  ficheiro é apagado. **HTTP não comprova que o cliente gravou o ficheiro**: o NPM pode
+  ter recebido tudo e o cliente falhar depois. Para evitar perda nesse caso existe
+  `VORTEX_INTAKE_LOGS_DELIVERED_GRACE_HOURS` (0–72, por omissão 0): mantém o ficheiro
+  usado no LXC durante esse prazo, só para recuperação pela shell, nunca por HTTP.
+  Após um crash a meio de uma entrega o link é rearmado no arranque.
+- Estados devolvidos sem dados: 404 `link_not_found`, 410 `link_used` /
+  `link_expired` / `link_unavailable` (ficheiro em falta ou alterado), 409
+  `link_in_use`. Respostas `no-store`, `no-transform`, `Referrer-Policy: no-referrer`,
+  CSP com hash do script, `noindex`.
+- Instruções para humanos e agentes estão na própria página e no
+  [runbook](deploy-lxc/README.md#links-de-utilização-única-para-os-logs).
 
 #### Ir buscar os logs de um ticket
 
-Não há endpoint HTTP. Em produção os snapshots ficam no LXC em
+Pelo link no ticket (se ligado) ou pela shell: em produção os snapshots ficam no LXC em
 `/var/lib/vortex-intake/logs/`, acessíveis ao utilizador do serviço e a root.
 O [runbook LXC](deploy-lxc/README.md#ir-buscar-logs) explica como listar/copiar um
 ficheiro exato via `server03` / `pct exec 110`. Na alternativa Docker, o diretório
@@ -256,7 +296,7 @@ Os ficheiros binários estão incluídos; executar testes não requer Pillow/Pyt
 
 Testes cobrem validação, limite exato, HTML, contrato real HTTP (loopback), pipeline
 Plane/storage com mocks, schema de resposta, crash/restart, resultado ambíguo,
-concorrência, replay, expiração e perda de confirmação. Estes testes são offline; a evidência de validação no LXC e na instância real
+concorrência, replay, expiração e perda de confirmação; e links de logs (`tests/links.test.mjs`: scanners GET/HEAD, concorrência, interrupção, crash, expiry, replay, adulteração, headers/CSP, configuração). Estes testes são offline; a evidência de validação no LXC e na instância real
 fica separada em `deployment-status.md`.
 
 ## Fontes de compatibilidade

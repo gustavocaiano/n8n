@@ -13,7 +13,15 @@ const defaults = {
   VORTEX_INTAKE_FEATURE_LABEL: '977bd461-ae12-409c-a029-9bb4f3dc1af9',
   VORTEX_INTAKE_STORAGE_ORIGINS: '',
   VORTEX_INTAKE_PLANE_PROJECT_IDENTIFIER: 'VORTEX',
+  // Files WITHOUT a one-time link (stored before links, or with links disabled).
   VORTEX_INTAKE_LOGS_RETENTION_DAYS: '90',
+  // One-time links: empty base = disabled (no public listener, notes as before).
+  VORTEX_INTAKE_LOGS_LINK_BASE: '',
+  VORTEX_INTAKE_LOGS_LINK_TTL_DAYS: '15',
+  VORTEX_INTAKE_LOGS_DELIVERED_GRACE_HOURS: '0',
+  VORTEX_INTAKE_DOWNLOAD_LISTEN_HOST: '127.0.0.1',
+  VORTEX_INTAKE_DOWNLOAD_PORT: '8087',
+  VORTEX_INTAKE_DOWNLOAD_ALLOWED_PEERS: '',
 };
 
 export function prepareEnvironment(source, existing = {}, shared = {}) {

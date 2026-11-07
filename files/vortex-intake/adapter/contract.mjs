@@ -153,11 +153,22 @@ export function completed(input, state) {
 }
 
 // Logs never reach Plane: only this short note, appended once the file is stored.
-export function logsNote(input, ref) {
+// With a one-time link, the note also carries that link (token in the fragment).
+export function logsNote(input, ref, link = null) {
   const { hours, size, truncated } = input.logs;
-  return `<p><strong>O utilizador enviou logs das últimas ${hours} horas.</strong><br>` +
+  let note = `<p><strong>O utilizador enviou logs das últimas ${hours} horas.</strong><br>` +
     `${size} bytes, truncado: ${truncated ? 'sim' : 'não'}; ` +
     `guardados no n8n: <code>${ref.replace(/[^A-Za-z0-9._-]/g, '')}</code></p>`;
+  if (link) {
+    if (!/^https:\/\/[A-Za-z0-9.:/_-]+#t=[A-Za-z0-9_-]{43}$/.test(link.url)) throw new IntakeError(500, 'invalid_logs_link');
+    const expires = new Date(link.expiresAt).toISOString().slice(0, 10);
+    note += `<p><a href="${link.url}" rel="noopener noreferrer nofollow">Obter logs (link de utilização única)</a>` +
+      ` — expira a ${expires} se não for usado; o ficheiro é apagado após a entrega. ` +
+      'Abrir o link não consome: é preciso carregar em «Descarregar». ' +
+      'Agentes: seguir as instruções da página (POST do token, nunca em logs ou comentários). ' +
+      'Não copiar este link para fora do ticket.</p>';
+  }
+  return note;
 }
 
 export function planeIssue(input, config) {

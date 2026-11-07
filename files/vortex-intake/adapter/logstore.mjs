@@ -1,13 +1,14 @@
 import { closeSync, fsyncSync, mkdirSync, chmodSync, openSync, readdirSync, readFileSync, renameSync,
-  rmSync, statSync, writeSync } from 'node:fs';
+  rmSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { IntakeError, digest } from './contract.mjs';
 
 export const DEFAULT_RETENTION_DAYS = 90;
 const NAME = /^[A-Z][A-Z0-9]*-\d+_[0-9a-f-]{36}\.txt$/;
 
-// Private, durable store for Vortex log snapshots. Never served over HTTP and
-// never sent to Plane; retrieved by an operator with docker exec on the host.
+// Private, durable store for Vortex log snapshots. Never sent to Plane. Only the
+// one-time link handler (links.mjs/download.mjs) reads a file, by its stored ref;
+// operators can still read them from the LXC shell.
 export class LogStore {
   constructor(directory, retentionDays = DEFAULT_RETENTION_DAYS) {
     this.directory = directory;
@@ -49,12 +50,30 @@ export class LogStore {
     }
   }
 
-  // Deletes snapshots (and stale temp files) older than the retention period.
-  prune(now = Date.now()) {
+  read(name) {
+    if (!NAME.test(name)) throw new IntakeError(500, 'invalid_logs_ref');
+    try { return readFileSync(join(this.directory, name)); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw storeError(); }
+  }
+
+  // Durable delete: unlink + directory fsync. Returns whether a file was removed.
+  remove(name) {
+    if (!NAME.test(name)) throw new IntakeError(500, 'invalid_logs_ref');
+    try { unlinkSync(join(this.directory, name)); }
+    catch (error) { if (error.code === 'ENOENT') return false; throw storeError(); }
+    const dir = openSync(this.directory, 'r');
+    try { fsyncSync(dir); } finally { closeSync(dir); }
+    return true;
+  }
+
+  // Deletes unlinked snapshots (pre-link files, or links disabled) and stale temp
+  // files older than the retention period. Files with a link (`linked`) follow the
+  // link's own expiry instead and are never removed here.
+  prune(now = Date.now(), linked = new Set()) {
     let removed = 0;
     for (const entry of readdirSync(this.directory)) {
       const temp = /^\..+\.tmp$/.test(entry);
-      if (!NAME.test(entry) && !temp) continue;
+      if ((!NAME.test(entry) && !temp) || linked.has(entry)) continue;
       const path = join(this.directory, entry);
       try {
         // Temp files are leftovers of an interrupted write; a retry rewrites them.

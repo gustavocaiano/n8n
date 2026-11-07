@@ -12,6 +12,7 @@ O novo **serviço** `vortex-intake.service` é o adaptador privado desse workflo
 | --- | --- |
 | Código | `/opt/vortex-intake/*.mjs` |
 | Listener | `127.0.0.1:8086`, alias `vortex-intake` em `/etc/hosts` |
+| Links de logs (opcional, desligado) | `VORTEX_INTAKE_DOWNLOAD_LISTEN_HOST:8087`, só rotas de download |
 | Configuração / key Plane existente | `/etc/vortex-intake/adapter.env`, root 0600 |
 | Token interno partilhado | `/etc/vortex-intake/token.env`, root 0600 |
 | n8n drop-in | `/etc/systemd/system/n8n.service.d/30-vortex-intake.conf` |
@@ -93,8 +94,124 @@ umask 077
 ssh server03 'pct exec 110 -- cat /var/lib/vortex-intake/logs/VORTEX-14_<uuid>.txt' > VORTEX-14-logs.txt
 ```
 
-Não há endpoint HTTP de download. Retenção: 90 dias por omissão, limpeza diária;
-a nota no ticket mantém-se depois da expiração do ficheiro.
+Com os links desligados não há endpoint HTTP de download. Retenção dos ficheiros sem
+link: 90 dias; com link: até à entrega ou 15 dias. Limpeza de hora a hora; a nota no
+ticket mantém-se depois da expiração do ficheiro.
+
+## Links de utilização única para os logs
+
+Nova superfície **pública** com dados sensíveis: só ligar com confirmação explícita do
+Gustavo. Desligado por omissão e reversível sem perder dados. Desenho e garantias:
+[README](../README.md#links-de-utilização-única).
+
+### Decisões antes de ligar
+
+1. **Host público.** Recomendado: subdomínio próprio, p.ex.
+   `https://vortex-logs.nforensic.site/` (origem separada do n8n; nenhum cookie/UI n8n
+   na mesma origem). Alternativa: caminho `https://nodemation.nforensic.site/vortex-logs/`
+   numa *Custom Location* do proxy host existente.
+2. **Rede.** O NPM tem de chegar ao LXC 110 na porta 8087. Escutar só no IP interno do
+   LXC e aceitar só o IP de origem do NPM (`VORTEX_INTAKE_DOWNLOAD_ALLOWED_PEERS`).
+   A porta 8086 (intake) continua só em loopback.
+3. **Perda vs privacidade.** `VORTEX_INTAKE_LOGS_DELIVERED_GRACE_HOURS=0` apaga logo
+   após a entrega (pedido original). Um valor como `24` evita perda se o browser/agente
+   falhar depois de o proxy receber os bytes, mas mantém o ficheiro mais 24 h no LXC
+   (nunca de novo por HTTP).
+4. **Ficheiros existentes.** Não recebem link e mantêm o prazo de 90 dias. Encurtar
+   `VORTEX_INTAKE_LOGS_RETENTION_DAYS` apaga os mais antigos no próximo arranque:
+   só com aprovação.
+
+### Configuração (no LXC, como root)
+
+```sh
+cp -a /etc/vortex-intake/adapter.env /var/backups/adapter.env.before-links
+# Editar /etc/vortex-intake/adapter.env (sem imprimir a key Plane):
+#   VORTEX_INTAKE_LOGS_LINK_BASE="https://vortex-logs.nforensic.site/"   # termina em /
+#   VORTEX_INTAKE_LOGS_LINK_TTL_DAYS="15"
+#   VORTEX_INTAKE_LOGS_DELIVERED_GRACE_HOURS="0"
+#   VORTEX_INTAKE_DOWNLOAD_LISTEN_HOST="<IP do LXC 110>"
+#   VORTEX_INTAKE_DOWNLOAD_ALLOWED_PEERS="<IP do NPM visto pelo LXC>"
+sh /root/vortex-intake/deploy-lxc/install.sh --check
+sh /root/vortex-intake/deploy-lxc/install.sh --apply   # preserva estes valores
+ss -ltnp '( sport = :8086 or sport = :8087 )'
+```
+
+O instalador nunca liga os links sozinho: só copia o código e mantém o `adapter.env`.
+n8n e o workflow **não mudam** (o token nunca passa pelo n8n).
+
+### NPM e Cloudflare (Gustavo)
+
+Proxy host (ou Custom Location `/vortex-logs/`) → `http://<IP do LXC 110>:8087`,
+SSL forçado + HSTS. Em *Advanced*:
+
+```nginx
+client_max_body_size 4k;
+proxy_buffering off;
+proxy_read_timeout 65s;
+proxy_set_header X-Forwarded-Proto https;
+```
+
+`proxy_buffering off` aproxima "o adaptador terminou de enviar" de "o cliente recebeu".
+O token não aparece no URL pedido, por isso os access logs não o contêm; desligar o
+access log deste host é opcional. Na Cloudflare: regra de cache *Bypass* para o host/
+caminho e sem Rocket Loader/Zaraz/Web Analytics injetados (a CSP bloqueia scripts
+alheios e `no-transform` pede para não alterar a resposta).
+
+### Verificação sem Plane e sem logs reais
+
+```sh
+# instalado em /opt/vortex-intake pelo install.sh --apply
+runuser -u vortex-intake -- node /opt/vortex-intake/verify-links.mjs --execute https://vortex-logs.nforensic.site/
+```
+
+Cria um ficheiro sintético `VORTEX-0_<uuid>.txt` com link, e verifica pelo URL público:
+GET/HEAD não consomem, `GET redeem` → 405, status `available`, entrega com sha256 igual,
+segundo `redeem` → 410 `link_used`, ficheiro apagado. Imprime só estados HTTP. Não cria
+tickets. Depois, só com confirmação, um pedido sintético pelo webhook com logs comprova
+a nota+link no Plane.
+
+### Uso por humanos
+
+Abrir o link do ticket, confirmar o estado e carregar em **Descarregar**. A página
+verifica o sha256 e só então grava o ficheiro. Recarregar a página perde o token (foi
+removido da barra de endereço): voltar a abrir o link do ticket. Não copiar o link para
+chats, emails ou outros tickets: quem o tiver pode consumi-lo uma vez.
+
+### Uso por agentes
+
+O token é o valor `t=` depois de `#` no link da nota. Nunca o pôr no caminho/query,
+argumentos de linha de comandos, logs, comentários ou no Plane; nunca imprimir os logs
+recebidos em conversas. `GET` da página é seguro (não consome) e mostra estas instruções.
+
+```sh
+umask 077
+printf 'token=%s' "$TOKEN" > token.form        # $TOKEN obtido do link, sem eco
+B=https://vortex-logs.nforensic.site/          # base do link, sem o fragmento
+curl -fsS --proto =https -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-binary @token.form "${B}status"        # {"state":"available",...}; não consome
+curl -fsS --proto =https -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-binary @token.form -D headers.txt -o vortex-logs.txt "${B}redeem"   # consome
+rm -f token.form
+sha256sum vortex-logs.txt; grep -i '^x-vortex-logs-sha256' headers.txt     # têm de coincidir
+```
+
+Também é aceite `token=<link completo>`. Respostas: 200 ficheiro; 404 `link_not_found`;
+410 `link_used`/`link_expired`/`link_unavailable`; 409 `link_in_use` (esperar
+`Retry-After`). Se o `curl` falhar a meio (tamanho incompleto), consultar `status`: se
+estiver `available`, repetir; se estiver `used`, não houve prova de receção e o ficheiro
+só pode ser recuperado pela shell dentro do prazo de *grace*, se configurado.
+
+### Rollback dos links
+
+1. `VORTEX_INTAKE_LOGS_LINK_BASE=""` em `adapter.env` (ou restaurar o backup acima) e
+   `systemctl restart vortex-intake.service`. O listener 8087 deixa de existir; novos
+   tickets recebem só a nota anterior. Remover o proxy host/location no NPM.
+2. Links já emitidos deixam de funcionar (sem listener), mas os ficheiros continuam a
+   expirar aos 15 dias; até lá estão disponíveis pela shell. Pedidos a meio recebem a
+   nota sem link. Nada da ledger é apagado.
+3. Voltar ao código anterior: restaurar `/opt/vortex-intake` do backup do instalador.
+   A tabela `log_links` fica inerte; o código anterior aplica 90 dias por mtime a todos
+   os ficheiros (incluindo os que tinham link).
 
 ## Rollback
 
