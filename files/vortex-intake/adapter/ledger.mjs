@@ -39,7 +39,7 @@ export class Ledger {
         const tokens = bucket ? Math.min(5, bucket.tokens + Math.max(0, now - bucket.ts) * 5 / 3_600_000) : 5;
         if (tokens < 1) throw new IntakeError(429, 'rate_limited');
         this.db.prepare('INSERT OR REPLACE INTO buckets VALUES (?, ?, ?)').run(bucketKey, tokens - 1, now);
-        state = { stage: 'new', issueId: null, attachmentId: null, generation: 0, fingerprint: input.fingerprint };
+        state = { stage: 'new', issueId: null, files: {}, fingerprint: input.fingerprint };
         this.db.prepare('INSERT INTO requests VALUES (?, ?, ?)').run(input.key, input.fingerprint, JSON.stringify(state));
       }
       this.db.exec('COMMIT');

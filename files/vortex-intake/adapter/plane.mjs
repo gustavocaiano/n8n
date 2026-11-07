@@ -54,14 +54,25 @@ export class PlaneClient {
   }
 
   async findIssue(externalId, signal) {
-    const items = await this.list('', { external_id: externalId, external_source: SOURCE, archived: 'true', fields: 'id,external_id,external_source' }, signal);
+    const items = await this.list('', { external_id: externalId, external_source: SOURCE, archived: 'true', fields: 'id,external_id,external_source,sequence_id' }, signal);
     return unique(items, externalId);
   }
 
   async createIssue(body, signal) {
     const result = await this.request('', 'POST', body, signal);
     if (!UUID.test(result?.id ?? '')) throw new IntakeError(502, 'invalid_plane_response');
-    return result.id;
+    return { id: result.id, sequenceId: Number.isInteger(result.sequence_id) ? result.sequence_id : null };
+  }
+
+  async issueSequence(issueId, signal) {
+    const result = await this.request(`${issueId}/`, 'GET', null, signal);
+    if (result?.id !== issueId || !Number.isInteger(result.sequence_id)) throw new IntakeError(502, 'invalid_plane_response');
+    return result.sequence_id;
+  }
+
+  // Full replacement of description_html: repeating it is harmless.
+  async updateDescription(issueId, descriptionHtml, signal) {
+    await this.request(`${issueId}/`, 'PATCH', { description_html: descriptionHtml }, signal);
   }
 
   async findAttachment(issueId, externalId, signal) {

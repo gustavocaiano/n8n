@@ -8,7 +8,8 @@ let payload = input.json.body;
 let code;
 let httpStatus = 422;
 if (contentType.startsWith('multipart/form-data')) {
-  if (!payload || typeof payload.payload !== 'string' || Object.keys(payload).length !== 1 || keys.length !== 1 || keys[0] !== 'attachment') {
+  if (!payload || typeof payload.payload !== 'string' || Object.keys(payload).length !== 1 || keys.length < 1 ||
+      keys.length > 2 || keys.some((key) => !['attachment', 'logs'].includes(key))) {
     code = 'invalid_parts';
   } else {
     try { payload = JSON.parse(payload.payload); }
@@ -31,5 +32,10 @@ if (code) {
   }
   return [{ json: { valid: false, httpStatus, response } }];
 }
-return [{ json: { valid: true, payload, legacy, hasAttachment: keys.length === 1 },
-  ...(keys.length ? { binary: { attachment: binary.attachment } } : {}) }];
+const hasAttachment = keys.includes('attachment');
+const hasLogs = keys.includes('logs');
+const files = {};
+if (hasAttachment) files.attachment = binary.attachment;
+if (hasLogs) files.logs = binary.logs;
+return [{ json: { valid: true, payload, legacy, hasBinary: keys.length > 0, hasAttachment, hasLogs },
+  ...(keys.length ? { binary: files } : {}) }];

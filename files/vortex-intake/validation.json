@@ -1,7 +1,7 @@
 {
-  "date": "2026-11-05",
+  "date": "2026-11-07",
   "workflow": "workflows/vortex-intake.workflow.json",
-  "sha256": "fc2b4d40a6680aa1b40e911e61d5f74914d0e41c4b9a197dba0706ba4d334a65",
+  "sha256": "3e251aca3635c5b02175f21ab5bceb471449ec90b4006a55ee94e9ad93515c34",
   "publication": "not-published",
   "runtimeExecution": "none",
   "nodeSchemaValidation": {
@@ -51,48 +51,72 @@
       },
       {
         "index": 7,
-        "name": "Has attachment?",
+        "name": "Has files?",
         "type": "n8n-nodes-base.if",
         "valid": true
       },
       {
         "index": 8,
+        "name": "Has attachment?",
+        "type": "n8n-nodes-base.if",
+        "valid": true
+      },
+      {
+        "index": 9,
+        "name": "Attachment and logs?",
+        "type": "n8n-nodes-base.if",
+        "valid": true
+      },
+      {
+        "index": 10,
+        "name": "Deliver attachment and logs",
+        "type": "n8n-nodes-base.httpRequest",
+        "valid": true
+      },
+      {
+        "index": 11,
         "name": "Deliver with attachment",
         "type": "n8n-nodes-base.httpRequest",
         "valid": true
       },
       {
-        "index": 9,
+        "index": 12,
+        "name": "Deliver logs",
+        "type": "n8n-nodes-base.httpRequest",
+        "valid": true
+      },
+      {
+        "index": 13,
         "name": "Deliver JSON",
         "type": "n8n-nodes-base.httpRequest",
         "valid": true
       },
       {
-        "index": 10,
+        "index": 14,
         "name": "Validate confirmation",
         "type": "n8n-nodes-base.code",
         "valid": true
       },
       {
-        "index": 11,
+        "index": 15,
         "name": "V2 response?",
         "type": "n8n-nodes-base.if",
         "valid": true
       },
       {
-        "index": 12,
+        "index": 16,
         "name": "Respond to Vortex",
         "type": "n8n-nodes-base.respondToWebhook",
         "valid": true
       },
       {
-        "index": 13,
+        "index": 17,
         "name": "Telegram (desativado)",
         "type": "n8n-nodes-base.telegram",
         "valid": true
       },
       {
-        "index": 14,
+        "index": 18,
         "name": "Email (desativado)",
         "type": "n8n-nodes-base.emailSend",
         "valid": true

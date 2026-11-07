@@ -7,7 +7,7 @@ import { payload, issueId, textFile, setup } from './helpers.mjs';
 
 test('JSON completion and replay survive a restart without duplicating the issue', async (t) => {
   const ctx = setup(t);
-  assert.deepEqual(await ctx.intake.submit(payload), { status: 200, body: { schema_version: 2, request_id: payload.request_id, status: 'completed', work_item_id: issueId, attachment_id: null } });
+  assert.deepEqual(await ctx.intake.submit(payload), { status: 200, body: { schema_version: 2, request_id: payload.request_id, status: 'completed', work_item_id: issueId, attachment_id: null, logs_ref: null } });
   ctx.restart();
   await ctx.intake.submit({ ...payload, reported_at: 'later' });
   assert.equal(ctx.plane.count('createIssue'), 1);
@@ -16,12 +16,12 @@ test('JSON completion and replay survive a restart without duplicating the issue
 test('upload failure retries only the attachment and keeps confirmed issue ID', async (t) => {
   const ctx = setup(t); ctx.plane.fail('upload', new IntakeError(502, 'storage_unavailable'));
   await assert.rejects(ctx.intake.submit(payload, textFile()));
-  assert.equal(ctx.ledger.get(payload.request_id).stage, 'uploading');
+  assert.equal(ctx.ledger.get(payload.request_id).files.attachment.stage, 'uploading');
   ctx.restart();
   const result = await ctx.intake.submit(payload, textFile());
   assert.equal(result.status, 200); assert.ok(result.body.attachment_id);
   assert.equal(ctx.plane.count('createIssue'), 1); assert.equal(ctx.plane.count('createAttachment'), 1); assert.equal(ctx.plane.count('upload'), 2);
-  assert.equal(ctx.ledger.get(payload.request_id).upload, undefined);
+  assert.equal(ctx.ledger.get(payload.request_id).files.attachment.upload, undefined);
 });
 test('confirm response lost: restart reads confirmation and never reuploads', async (t) => {
   const ctx = setup(t); ctx.plane.fail('confirm', new PlaneError(0), true);

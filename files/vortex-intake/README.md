@@ -9,8 +9,8 @@ workspace `novaforensic`, projeto `VORTEX`.
 
 - `../../workflows/vortex-intake.workflow.json`: workflow importável.
 - `build-workflow.mjs`, `normalize.js`, `response.js`: configuração e fontes dos Code nodes.
-- `adapter/{server,contract,ledger,plane,intake}.mjs`: adaptador HTTP síncrono, validação,
-  SQLite e entrega/recuperação no Plane.
+- `adapter/{server,contract,ledger,plane,intake,logstore}.mjs`: adaptador HTTP síncrono,
+  validação, SQLite, entrega/recuperação no Plane e armazenamento privado dos logs.
 - `../../plane/compose.yml`, `../../plane/.env.example`: serviço privado e configuração.
 - `tests/`: testes offline, incluindo HTTP apenas em loopback e Plane/storage falsos.
 - `fixtures/`: JSON legacy/v2, quatro ficheiros reais, corpos multipart e respostas.
@@ -27,8 +27,8 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 - `application/json`: payload atual; legacy continua aceite sem campos novos.
 - JSON v2, com ou sem anexo: `schema_version` inteiro `2`, `request_id` UUID.
   UUID v1–v8 são aceites (inclui v4/v5); a resposta conserva a capitalização recebida.
-- Com anexo: `multipart/form-data`; exatamente uma parte textual **payload** com
-  o JSON completo e uma parte de ficheiro **attachment** com bytes/nome/MIME.
+- Com ficheiros: `multipart/form-data`; exatamente uma parte textual **payload** com
+  o JSON completo, mais **attachment** (0..1) e/ou **logs** (0..1), pelo menos um.
   Não usar base64, URL de download ou JSON dentro de uma parte de ficheiro.
 - `type`: `bug` ou `feature`; `title`: 1–160 caracteres Unicode após trim;
   `description`: 1–4000 após trim. `website` vazio.
@@ -41,9 +41,43 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 - Verifica os bytes reais: assinatura PNG/IHDR, JPEG, PDF; TXT UTF-8 válido sem
   controlos binários. Isto identifica o formato, não é antivírus nem descodificação
   integral do documento. Nomes e texto são escapados ao construir HTML.
-- Limites auxiliares: JSON 64 KiB; corpo multipart 5 MiB + 64 KiB;
+- Limites auxiliares: JSON 64 KiB; corpo multipart 5 MiB + 2 MiB + 64 KiB;
   instance.name/user.name/user.username 512 caracteres, URL 2048, version 128,
   reported_at 80. São amplos para os valores normais enviados pelo Vortex.
+
+### Logs de 48 h (só `type: bug`)
+
+- Parte **logs**: nome exato `vortex-logs-48h.txt`, `text/plain` (charset, se existir,
+  `utf-8`), 1–**2097152 bytes** inclusivo, UTF-8 estrito, sem controlos C0/DEL além de
+  `\t\n\r` (o Vortex remove-os, incluindo ANSI). Senão 413/415/422 `*_logs*`.
+- `payload.logs`: `{"included": false}` ou `{"included": true, "hours": 48,
+  "bytes": <tamanho exato da parte>, "truncated": <bool>}`. Sem a chave = `included:false`
+  (NUCs v2 antigos). `included` tem de coincidir com a presença da parte (`logs_mismatch`).
+- O sha256 dos logs entra no fingerprint: o Vortex congela o snapshot por rascunho.
+  Bytes diferentes com o mesmo UUID → 409 `request_id_conflict`.
+- **Os logs nunca vão para o Plane.** Ordem: cria o ticket → grava
+  `/data/logs/<IDENT>-<seq>_<request_id>.txt` (0600, diretório 0700, write+fsync+rename+
+  fsync do diretório; mesmo nome com bytes diferentes nunca é sobrescrito) → PATCH da
+  descrição do ticket com a nota "Logs: 48 h, N bytes, truncado: sim/não; guardados no
+  n8n: `VORTEX-14_<uuid>.txt`" (substituição completa, repetível) → anexo do utilizador,
+  se existir → `completed`. A ledger guarda só a etapa e o nome, nunca o conteúdo.
+- Resposta: `logs_ref` com o nome do ficheiro (ou `null`); opcional para o Vortex,
+  mas o gate n8n exige-o, com o mesmo request_id, quando houve logs.
+- Retenção: **90 dias** (`VORTEX_INTAKE_LOGS_RETENTION_DAYS`), limpeza no arranque e
+  a cada 24 h por mtime. A nota no Plane fica; o ficheiro desaparece. Temporários
+  de escritas interrompidas são removidos após 1 h.
+
+#### Ir buscar os logs de um ticket
+
+Não há endpoint HTTP; o diretório só existe no volume `vortex_intake_data`. No host
+do stack (`docker` com acesso ao contentor `vortex-intake`):
+
+```sh
+# listar
+ssh <host-n8n> docker exec vortex-intake ls -l /data/logs
+# copiar os logs do VORTEX-14 para a máquina local
+ssh <host-n8n> "docker exec vortex-intake sh -c 'cat /data/logs/VORTEX-14_*.txt'" > VORTEX-14-logs.txt
+```
 
 ### Saída v2
 
@@ -55,7 +89,8 @@ Só **HTTP 200**, após confirmação do pedido e, se existir, do anexo:
   "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
   "status": "completed",
   "work_item_id": "8f4c2b1e-0d3a-4f7b-9c21-6e5a8b7d4f13",
-  "attachment_id": null
+  "attachment_id": null,
+  "logs_ref": null
 }
 ```
 
@@ -125,7 +160,8 @@ worker, poller, aceitação em background ou dependência do histórico n8n.
   Upsert Plane não foi usado: a documentação avisa que dois upserts simultâneos
   podem criar duplicados.
 
-Orçamento:20s no adaptador,22s no HTTP Request n8n,30s no Vortex v2 (JSON também).
+Orçamento: 20s no adaptador, 22s no HTTP Request n8n, 30s no Vortex v2 (JSON também).
+Com logs: 45s no adaptador, 50s no n8n, 60s no Vortex; NPM >=65s.
 O upload NUC→n8n consome parte dos30s; ligações lentas podem falhar e exigir retry.
 O Vortex conserva ficheiro e UUID até receber a confirmação. O registo SQLite
 não permite recuperar os bytes se o utilizador abandonar/perder o rascunho.
@@ -162,10 +198,10 @@ inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request
 2. Copiar a pasta `files/vortex-intake/adapter` juntamente com `plane/compose.yml`
    (o bind é `../files/vortex-intake/adapter`). Preencher as variáveis novas da
    `.env.example`: token interno diferente do token público, token Plane de serviço
-   com leitura/criação de work-items e leitura/criação/confirmação/eliminação de
+   com leitura/criação/atualização (PATCH da descrição) de work-items e leitura/criação/confirmação/eliminação de
    anexos, projeto/labels atuais e origins reais do storage. Nenhum secret está no
    repositório. Escolher/pinar a imagem Node24 aprovada na instalação.
-3. Rever NPM **na rota de feedback**: `client_max_body_size 6m` e timeout>=35s.
+3. Rever NPM **na rota de feedback**: `client_max_body_size 8m` e timeout>=65s.
    Verificar limites efetivos n8n (`N8N_PAYLOAD_SIZE_MAX`,
    `N8N_FORMDATA_FILE_SIZE_MAX`) e Plane/MinIO. Não reduzir globalmente limites usados
    por outros workflows. O limite funcional de5MiB é aplicado pelo adaptador.
@@ -188,7 +224,7 @@ inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request
 Reverter a publicação n8n usando o backup, mantendo caminho/token, e reverter ou
 indisponibilizar o formulário v2 coordenadamente: v2 não aceitará ACK202 do antigo.
 Não remover `vortex_intake_data`, nem mudar request_id nos rascunhos pendentes.
-Deixar as chamadas em curso terminar antes de parar o adaptador (grace35s).
+Deixar as chamadas em curso terminar antes de parar o adaptador (grace 55s).
 Na retoma, reusar o mesmo volume/ledger e credenciais. Nunca `docker compose down -v`.
 
 ## Verificação local reproduzível

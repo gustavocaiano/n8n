@@ -51,7 +51,7 @@ services:
     container_name: vortex-intake
     restart: always
     init: true
-    stop_grace_period: 35s
+    stop_grace_period: 55s
     environment:
       - VORTEX_INTAKE_TOKEN=${VORTEX_INTAKE_TOKEN}
       - VORTEX_INTAKE_PLANE_URL=${VORTEX_INTAKE_PLANE_URL}
@@ -61,6 +61,9 @@ services:
       - VORTEX_INTAKE_BUG_LABEL=${VORTEX_INTAKE_BUG_LABEL}
       - VORTEX_INTAKE_FEATURE_LABEL=${VORTEX_INTAKE_FEATURE_LABEL}
       - VORTEX_INTAKE_STORAGE_ORIGINS=${VORTEX_INTAKE_STORAGE_ORIGINS}
+      # Logs snapshots: /data/logs/<IDENT>-<seq>_<request_id>.txt (never sent to Plane)
+      - VORTEX_INTAKE_PLANE_PROJECT_IDENTIFIER=${VORTEX_INTAKE_PLANE_PROJECT_IDENTIFIER:-VORTEX}
+      - VORTEX_INTAKE_LOGS_RETENTION_DAYS=${VORTEX_INTAKE_LOGS_RETENTION_DAYS:-90}
     volumes:
       - vortex_intake_data:/data
       - ../files/vortex-intake/adapter:/app:ro

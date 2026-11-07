@@ -58,9 +58,10 @@ test('workflow isolates the legacy ACK from the v2 completion gate and disables 
   assert.equal(workflow.nodes.filter((n) => n.type.endsWith('.respondToWebhook')).length, 2);
   assert.equal(workflow.nodes.find((n) => n.name === 'Legacy received').parameters.options.responseCode, 202);
   assert.equal(workflow.connections['Legacy client?'].main[0][0].node, 'Legacy received');
-  assert.equal(workflow.connections['Legacy client?'].main[1][0].node, 'Has attachment?');
+  assert.equal(workflow.connections['Legacy client?'].main[1][0].node, 'Has files?');
   for (const n of workflow.nodes.filter((n) => n.type.endsWith('.httpRequest'))) {
-    assert.equal(n.retryOnFail, false); assert.equal(n.parameters.options.timeout, 22000);
+    assert.equal(n.retryOnFail, false);
+    assert.equal(n.parameters.options.timeout, n.name.includes('logs') ? 50000 : 22000);
     assert.equal(n.parameters.options.redirect.redirect.followRedirects, false);
   }
   for (const n of workflow.nodes.filter((n) => /desativado/.test(n.name))) {
