@@ -75,3 +75,35 @@ test('non-JSON 2xx and network failure during creation keep an unknown commit ou
     await assert.rejects(client.createIssue({}, signal()), (e) => e.code === 'plane_unavailable' && e.definitelyRejected === false && !e.message.includes('secret'));
   }
 });
+test('older Plane v2 uses the exact v1 correlation lookup when sparse fields are unsupported', async () => {
+  const urls = [];
+  const client = new PlaneClient(config, async (url) => {
+    urls.push(new URL(url));
+    if (url.includes('/v2/')) return json({ error: 'unsupported sparse fields' }, 400);
+    return json({ id: issueId, external_id: 'wanted', external_source: 'vortex-intake', sequence_id: 18 });
+  });
+  assert.equal((await client.findIssue('wanted', signal())).id, issueId);
+  assert.match(urls[1].pathname, /\/api\/v1\/.*\/issues\/$/);
+  assert.equal(urls[1].searchParams.get('external_id'), 'wanted');
+  assert.equal(urls[1].searchParams.get('archived'), 'true');
+});
+test('legacy reconciliation fails closed for malformed responses and never hides auth failures', async () => {
+  for (const item of [{ results: [] }, { id: issueId }, []]) {
+    const client = new PlaneClient(config, async (url) => url.includes('/v2/') ? json({}, 400) : json(item));
+    await assert.rejects(client.findIssue('wanted', signal()), { code: 'invalid_plane_response' });
+  }
+  const missing = new PlaneClient(config, async (url) => json({}, url.includes('/v2/') ? 400 : 404));
+  assert.equal(await missing.findIssue('wanted', signal()), null);
+  const wrong = new PlaneClient(config, async (url) => url.includes('/v2/') ? json({}, 400) : json({ id: issueId, external_id: 'another', external_source: 'vortex-intake' }));
+  assert.equal(await wrong.findIssue('wanted', signal()), null);
+  let calls = 0;
+  const denied = new PlaneClient(config, async () => { calls++; return json({}, 403); });
+  await assert.rejects(denied.findIssue('wanted', signal()), { upstreamStatus: 403 });
+  assert.equal(calls, 1);
+});
+test('description verification reads v1 only when v2 omits the description', async () => {
+  const client = new PlaneClient(config, async (url) => json({ id: issueId, ...(url.includes('/v1/') ? { description_html: '<p>Logs reference</p>' } : {}) }));
+  assert.equal((await client.issueDetails(issueId, signal())).description_html, '<p>Logs reference</p>');
+  const malformed = new PlaneClient(config, async () => json({ id: aid, description_html: 'wrong issue' }));
+  await assert.rejects(malformed.issueDetails(issueId, signal()), { code: 'invalid_plane_response' });
+});

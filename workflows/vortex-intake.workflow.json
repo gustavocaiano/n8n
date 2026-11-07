@@ -11,7 +11,7 @@
         -220
       ],
       "parameters": {
-        "content": "## Vortex feedback v2 → Plane\n\nLocal candidate — NOT PUBLISHED.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment.\nV2: only HTTP 200 completed after issue/attachment confirmation. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nConfigure Vortex Shared Secret and Vortex Intake Internal (X-Vortex-Intake-Token).\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.",
+        "content": "## Vortex feedback v2 → Plane\n\nSynchronous v2 + private logs. Production status: files/vortex-intake/deployment-status.md.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.",
         "width": 720,
         "height": 380
       }
@@ -88,7 +88,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// n8n Code node: parse the transport, preserve its binary reference, never fetch.\nconst input = $('Webhook').first();\nconst headers = input.json.headers || {};\nconst contentType = String(headers['content-type'] || '').toLowerCase();\nconst binary = input.binary || {};\nconst keys = Object.keys(binary);\nlet payload = input.json.body;\nlet code;\nlet httpStatus = 422;\nif (contentType.startsWith('multipart/form-data')) {\n  if (!payload || typeof payload.payload !== 'string' || Object.keys(payload).length !== 1 || keys.length !== 1 || keys[0] !== 'attachment') {\n    code = 'invalid_parts';\n  } else {\n    try { payload = JSON.parse(payload.payload); }\n    catch { code = 'invalid_json'; httpStatus = 400; }\n  }\n} else if (/^application\\/json(?:;|$)/.test(contentType)) {\n  if (keys.length) code = 'unexpected_attachment';\n} else {\n  code = 'unsupported_transport';\n  httpStatus = 415;\n}\nif (!code && (!payload || typeof payload !== 'object' || Array.isArray(payload))) code = 'invalid_payload';\nconst legacy = payload?.schema_version === undefined && payload?.request_id === undefined;\nif (!code && keys.length && legacy) code = 'attachment_requires_v2';\nif (code) {\n  const response = { status: 'error', code };\n  if (payload?.schema_version === 2) {\n    response.schema_version = 2;\n    if (typeof payload.request_id === 'string') response.request_id = payload.request_id;\n  }\n  return [{ json: { valid: false, httpStatus, response } }];\n}\nreturn [{ json: { valid: true, payload, legacy, hasAttachment: keys.length === 1 },\n  ...(keys.length ? { binary: { attachment: binary.attachment } } : {}) }];\n"
+        "jsCode": "// n8n Code node: parse the transport, preserve its binary reference, never fetch.\nconst input = $('Webhook').first();\nconst headers = input.json.headers || {};\nconst contentType = String(headers['content-type'] || '').toLowerCase();\nconst binary = input.binary || {};\nconst keys = Object.keys(binary);\nlet payload = input.json.body;\nlet code;\nlet httpStatus = 422;\nif (contentType.startsWith('multipart/form-data')) {\n  if (!payload || typeof payload.payload !== 'string' || Object.keys(payload).length !== 1 || keys.length < 1 ||\n      keys.length > 2 || keys.some((key) => !['attachment', 'logs'].includes(key))) {\n    code = 'invalid_parts';\n  } else {\n    try { payload = JSON.parse(payload.payload); }\n    catch { code = 'invalid_json'; httpStatus = 400; }\n  }\n} else if (/^application\\/json(?:;|$)/.test(contentType)) {\n  if (keys.length) code = 'unexpected_attachment';\n} else {\n  code = 'unsupported_transport';\n  httpStatus = 415;\n}\nif (!code && (!payload || typeof payload !== 'object' || Array.isArray(payload))) code = 'invalid_payload';\nconst legacy = payload?.schema_version === undefined && payload?.request_id === undefined;\nif (!code && keys.length && legacy) code = 'attachment_requires_v2';\nif (code) {\n  const response = { status: 'error', code };\n  if (payload?.schema_version === 2) {\n    response.schema_version = 2;\n    if (typeof payload.request_id === 'string') response.request_id = payload.request_id;\n  }\n  return [{ json: { valid: false, httpStatus, response } }];\n}\nconst hasAttachment = keys.includes('attachment');\nconst hasLogs = keys.includes('logs');\nconst files = {};\nif (hasAttachment) files.attachment = binary.attachment;\nif (hasLogs) files.logs = binary.logs;\nreturn [{ json: { valid: true, payload, legacy, hasBinary: keys.length > 0, hasAttachment, hasLogs },\n  ...(keys.length ? { binary: files } : {}) }];\n"
       }
     },
     {
@@ -175,13 +175,46 @@
       }
     },
     {
-      "id": "vortex-intake-has-attachment-",
-      "name": "Has attachment?",
+      "id": "vortex-intake-has-files-",
+      "name": "Has files?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
         880,
         240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "hasBinary",
+              "leftValue": "={{ $json.hasBinary }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vortex-intake-has-attachment-",
+      "name": "Has attachment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        960,
+        100
       ],
       "parameters": {
         "conditions": {
@@ -208,19 +241,120 @@
       }
     },
     {
+      "id": "vortex-intake-attachment-and-logs-",
+      "name": "Attachment and logs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "hasLogs",
+              "leftValue": "={{ $json.hasLogs }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "vortex-intake-deliver-attachment-and-logs",
+      "name": "Deliver attachment and logs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        -100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.intakeUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Vortex-Intake-Token",
+              "value": "={{ $env.VORTEX_INTAKE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "payload",
+              "value": "={{ JSON.stringify($json.payload) }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "attachment",
+              "inputDataFieldName": "attachment"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "logs",
+              "inputDataFieldName": "logs"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 50000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "vortex-intake-deliver-with-attachment",
       "name": "Deliver with attachment",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1100,
-        140
+        1280,
+        60
       ],
       "parameters": {
         "method": "POST",
         "url": "={{ $('Config').first().json.intakeUrl }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Vortex-Intake-Token",
+              "value": "={{ $env.VORTEX_INTAKE_TOKEN }}"
+            }
+          ]
+        },
         "sendBody": true,
         "contentType": "multipart-form-data",
         "bodyParameters": {
@@ -254,13 +388,63 @@
         }
       },
       "retryOnFail": false,
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_ME_INTAKE",
-          "name": "Vortex Intake Internal"
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "vortex-intake-deliver-logs",
+      "name": "Deliver logs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config').first().json.intakeUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Vortex-Intake-Token",
+              "value": "={{ $env.VORTEX_INTAKE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "payload",
+              "value": "={{ JSON.stringify($json.payload) }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "logs",
+              "inputDataFieldName": "logs"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 50000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
         }
-      }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
     },
     {
       "id": "vortex-intake-deliver-json",
@@ -268,14 +452,21 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1100,
+        1280,
         400
       ],
       "parameters": {
         "method": "POST",
         "url": "={{ $('Config').first().json.intakeUrl }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Vortex-Intake-Token",
+              "value": "={{ $env.VORTEX_INTAKE_TOKEN }}"
+            }
+          ]
+        },
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
@@ -297,13 +488,7 @@
         }
       },
       "retryOnFail": false,
-      "onError": "continueRegularOutput",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "REPLACE_ME_INTAKE",
-          "name": "Vortex Intake Internal"
-        }
-      }
+      "onError": "continueRegularOutput"
     },
     {
       "id": "vortex-intake-validate-confirmation",
@@ -311,12 +496,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
+        1500,
         240
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Never pass through a successful HTTP status without the agreed confirmation.\nconst incoming = $input.first().json;\nconst payload = $('Normalize request').first().json.payload;\nconst hasAttachment = $('Normalize request').first().json.hasAttachment;\nconst v2 = payload?.schema_version !== undefined || payload?.request_id !== undefined;\nlet body = incoming.body;\nif (typeof body === 'string') {\n  try { body = JSON.parse(body); } catch { body = null; }\n}\nconst response = { status: 'error', code: 'intake_unavailable' };\nif (v2) Object.assign(response, { schema_version: 2, request_id: payload.request_id });\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst confirmed = incoming.statusCode === 200 && body?.status === 'completed' &&\n  uuid.test(body.work_item_id || '') && (!hasAttachment || uuid.test(body.attachment_id || '')) &&\n  (!v2 || (body.schema_version === 2 && body.request_id === payload.request_id));\nif (confirmed) return [{ json: { v2, httpStatus: 200, response: body } }];\nif (!v2 && incoming.statusCode === 200 && body?.status === 'ignored') {\n  return [{ json: { v2: false, httpStatus: 200, response: { status: 'ignored' } } }];\n}\nconst allowed = [400, 401, 403, 409, 413, 415, 422, 429, 500, 502, 503, 504];\nconst httpStatus = allowed.includes(incoming.statusCode) ? incoming.statusCode : 502;\nif (body?.status === 'error' && typeof body.code === 'string' && /^[a-z_]{1,64}$/.test(body.code)) response.code = body.code;\nreturn [{ json: { v2, httpStatus, response, retryAfter: httpStatus === 429 ? '720' : '2' } }];\n"
+        "jsCode": "// Never pass through a successful HTTP status without the agreed confirmation.\nconst incoming = $input.first().json;\nconst payload = $('Normalize request').first().json.payload;\nconst { hasAttachment, hasLogs } = $('Normalize request').first().json;\nconst v2 = payload?.schema_version !== undefined || payload?.request_id !== undefined;\nlet body = incoming.body;\nif (typeof body === 'string') {\n  try { body = JSON.parse(body); } catch { body = null; }\n}\nconst response = { status: 'error', code: 'intake_unavailable' };\nif (v2) Object.assign(response, { schema_version: 2, request_id: payload.request_id });\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst confirmed = incoming.statusCode === 200 && body?.status === 'completed' &&\n  uuid.test(body.work_item_id || '') && (!hasAttachment || uuid.test(body.attachment_id || '')) &&\n  (!hasLogs || (typeof body.logs_ref === 'string' && /^[A-Z][A-Z0-9]*-\\d+_[0-9a-f-]{36}\\.txt$/.test(body.logs_ref) &&\n    body.logs_ref.endsWith(`_${String(payload?.request_id).toLowerCase()}.txt`))) &&\n  (!v2 || (body.schema_version === 2 && body.request_id === payload.request_id));\nif (confirmed) return [{ json: { v2, httpStatus: 200, response: body } }];\nif (!v2 && incoming.statusCode === 200 && body?.status === 'ignored') {\n  return [{ json: { v2: false, httpStatus: 200, response: { status: 'ignored' } } }];\n}\nconst allowed = [400, 401, 403, 409, 413, 415, 422, 429, 500, 502, 503, 504];\nconst httpStatus = allowed.includes(incoming.statusCode) ? incoming.statusCode : 502;\nif (body?.status === 'error' && typeof body.code === 'string' && /^[a-z_]{1,64}$/.test(body.code)) response.code = body.code;\nreturn [{ json: { v2, httpStatus, response, retryAfter: httpStatus === 429 ? '720' : '2' } }];\n"
       }
     },
     {
@@ -325,7 +510,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1420,
+        1720,
         240
       ],
       "parameters": {
@@ -358,7 +543,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1540,
+        1940,
         240
       ],
       "parameters": {
@@ -494,7 +679,7 @@
         ],
         [
           {
-            "node": "Has attachment?",
+            "node": "Has files?",
             "type": "main",
             "index": 0
           }
@@ -505,18 +690,18 @@
       "main": [
         [
           {
-            "node": "Has attachment?",
+            "node": "Has files?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has attachment?": {
+    "Has files?": {
       "main": [
         [
           {
-            "node": "Deliver with attachment",
+            "node": "Has attachment?",
             "type": "main",
             "index": 0
           }
@@ -530,7 +715,65 @@
         ]
       ]
     },
+    "Has attachment?": {
+      "main": [
+        [
+          {
+            "node": "Attachment and logs?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deliver logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attachment and logs?": {
+      "main": [
+        [
+          {
+            "node": "Deliver attachment and logs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deliver with attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver attachment and logs": {
+      "main": [
+        [
+          {
+            "node": "Validate confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Deliver with attachment": {
+      "main": [
+        [
+          {
+            "node": "Validate confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver logs": {
       "main": [
         [
           {
@@ -579,7 +822,8 @@
     "executionOrder": "v1",
     "saveDataSuccessExecution": "none",
     "saveDataErrorExecution": "none",
-    "saveManualExecutions": false
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
   },
   "meta": {
     "templateCredsSetupCompleted": false

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Ledger } from '../adapter/ledger.mjs';
 import { Intake } from '../adapter/intake.mjs';
 import { PlaneError } from '../adapter/plane.mjs';
+import { LogStore } from '../adapter/logstore.mjs';
 
 export const config = { baseUrl: 'https://plane.invalid', workspace: 'test', project: 'test', apiKey: 'not-a-secret-test-only',
   storageOrigins: ['https://storage.invalid'], bugLabel: 'bug-label', featureLabel: 'feature-label' };
@@ -31,7 +32,12 @@ export class FakePlane {
   count(method) { return this.calls.filter((call) => call.method === method).length; }
   async findIssue(key) { this.record('findIssue', [key]); return this.issues.find((x) => x.external_id === key) ?? null; }
   async createIssue(body) {
-    this.record('createIssue', [body]); this.issues.push({ ...body, id: issueId }); this.after('createIssue'); return issueId;
+    this.record('createIssue', [body]); this.issues.push({ ...body, id: issueId, sequence_id: 14 }); this.after('createIssue');
+    return { id: issueId, sequenceId: 14 };
+  }
+  async issueSequence(id) { this.record('issueSequence', [id]); return this.issues.find((x) => x.id === id).sequence_id; }
+  async updateDescription(id, html) {
+    this.record('updateDescription', [id, html]); this.issues.find((x) => x.id === id).description_html = html; this.after('updateDescription');
   }
   async findAttachment(id, key) { this.record('findAttachment', [id, key]); return this.attachments.find((x) => x.external_id === key) ?? null; }
   async createAttachment(id, key, file) {
@@ -55,12 +61,23 @@ export class FakePlane {
   }
 }
 
+export const logsText = '# Vortex 3x-beta logs (48 h)\n[2026-11-07 09:00:00] local.ERROR: exemplo\n\tat linha\r\n';
+export function logsFile(text = logsText) {
+  return { name: 'vortex-logs-48h.txt', type: 'text/plain; charset=utf-8', bytes: Buffer.from(text) };
+}
+export function withLogs(file = logsFile(), extra = {}) {
+  return { ...payload, logs: { included: true, hours: 48, bytes: file.bytes.length, truncated: false, ...extra } };
+}
+
 export function setup(t, budget = 20_000) {
   const directory = mkdtempSync(join(tmpdir(), 'vortex-intake-test-'));
   let ledger = new Ledger(directory);
   const plane = new FakePlane();
-  let intake = new Intake(ledger, plane, config, budget);
+  const logStore = new LogStore(join(directory, 'logs'));
+  const make = () => new Intake(ledger, plane, config, budget, { logStore });
+  let intake = make();
   t.after(() => { ledger.close(); rmSync(directory, { recursive: true, force: true }); });
   return { directory, plane, get ledger() { return ledger; }, get intake() { return intake; },
-    restart() { ledger.close(); ledger = new Ledger(directory); intake = new Intake(ledger, plane, config, budget); } };
+    logStore, logsDir: join(directory, 'logs'),
+    restart() { ledger.close(); ledger = new Ledger(directory); intake = make(); } };
 }

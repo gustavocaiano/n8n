@@ -15,12 +15,13 @@ export class PlaneClient {
     this.config = config;
     this.fetch = fetchImpl;
     this.base = `${config.baseUrl}/api/v2/workspaces/${encodeURIComponent(config.workspace)}/projects/${encodeURIComponent(config.project)}/work-items/`;
+    this.legacyBase = `${config.baseUrl}/api/v1/workspaces/${encodeURIComponent(config.workspace)}/projects/${encodeURIComponent(config.project)}/issues/`;
   }
 
-  async request(path, method, body, signal) {
+  async request(path, method, body, signal, base = this.base) {
     let response;
     try {
-      response = await this.fetch(this.base + path, {
+      response = await this.fetch(base + path, {
         method, redirect: 'error', signal,
         headers: { 'X-Api-Key': this.config.apiKey, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
@@ -54,14 +55,49 @@ export class PlaneClient {
   }
 
   async findIssue(externalId, signal) {
-    const items = await this.list('', { external_id: externalId, external_source: SOURCE, archived: 'true', fields: 'id,external_id,external_source' }, signal);
-    return unique(items, externalId);
+    try {
+      const items = await this.list('', { external_id: externalId, external_source: SOURCE, archived: 'true', fields: 'id,external_id,external_source,sequence_id' }, signal);
+      return unique(items, externalId);
+    } catch (error) {
+      if (error.upstreamStatus !== 400) throw error;
+      // Older self-hosted v2 releases accept correlation fields on writes but
+      // reject them in sparse reads. V1's exact external_id lookup returns one
+      // object (or 404), not a paginated list. Still verify the correlation pair.
+      const query = new URLSearchParams({ external_id: externalId, external_source: SOURCE, archived: 'true' });
+      let item;
+      try { item = await this.request(`?${query}`, 'GET', null, signal, this.legacyBase); }
+      catch (fallbackError) { if (fallbackError.upstreamStatus === 404) return null; throw fallbackError; }
+      if (!item || !UUID.test(item.id ?? '') || !('external_id' in item) || !('external_source' in item)) {
+        throw new IntakeError(502, 'invalid_plane_response');
+      }
+      return unique([item], externalId);
+    }
+  }
+
+  async issueDetails(issueId, signal) {
+    let item = await this.request(`${issueId}/`, 'GET', null, signal);
+    if (item?.id === issueId && item.description_html === undefined) {
+      item = await this.request(`${issueId}/`, 'GET', null, signal, this.legacyBase);
+    }
+    if (item?.id !== issueId || typeof item.description_html !== 'string') throw new IntakeError(502, 'invalid_plane_response');
+    return item;
   }
 
   async createIssue(body, signal) {
     const result = await this.request('', 'POST', body, signal);
     if (!UUID.test(result?.id ?? '')) throw new IntakeError(502, 'invalid_plane_response');
-    return result.id;
+    return { id: result.id, sequenceId: Number.isInteger(result.sequence_id) ? result.sequence_id : null };
+  }
+
+  async issueSequence(issueId, signal) {
+    const result = await this.request(`${issueId}/`, 'GET', null, signal);
+    if (result?.id !== issueId || !Number.isInteger(result.sequence_id)) throw new IntakeError(502, 'invalid_plane_response');
+    return result.sequence_id;
+  }
+
+  // Full replacement of description_html: repeating it is harmless.
+  async updateDescription(issueId, descriptionHtml, signal) {
+    await this.request(`${issueId}/`, 'PATCH', { description_html: descriptionHtml }, signal);
   }
 
   async findAttachment(issueId, externalId, signal) {

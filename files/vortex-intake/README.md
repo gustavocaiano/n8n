@@ -1,6 +1,6 @@
 # Vortex feedback intake v2
 
-**Candidato local, não publicado.** Mantém `/webhook/vortex-feedback` e a credencial
+**Publicado e verificado em 2026-11-07** ([evidência](deployment-status.md)). Mantém `/webhook/vortex-feedback` e a credencial
 pública `X-Vortex-Feedback-Token`. O Vortex não precisa de URL pública nem de
 credenciais do Plane. O único destino funcional continua a ser Plane,
 workspace `novaforensic`, projeto `VORTEX`.
@@ -9,9 +9,10 @@ workspace `novaforensic`, projeto `VORTEX`.
 
 - `../../workflows/vortex-intake.workflow.json`: workflow importável.
 - `build-workflow.mjs`, `normalize.js`, `response.js`: configuração e fontes dos Code nodes.
-- `adapter/{server,contract,ledger,plane,intake}.mjs`: adaptador HTTP síncrono, validação,
-  SQLite e entrega/recuperação no Plane.
-- `../../plane/compose.yml`, `../../plane/.env.example`: serviço privado e configuração.
+- `adapter/{server,contract,ledger,plane,intake,logstore}.mjs`: adaptador HTTP síncrono,
+  validação, SQLite, entrega/recuperação no Plane e armazenamento privado dos logs.
+- `deploy-lxc/`: instalação nativa systemd no LXC de produção (ver [runbook](deploy-lxc/README.md)).
+- `../../plane/compose.yml`, `../../plane/.env.example`: alternativa para instalações Docker.
 - `tests/`: testes offline, incluindo HTTP apenas em loopback e Plane/storage falsos.
 - `fixtures/`: JSON legacy/v2, quatro ficheiros reais, corpos multipart e respostas.
 - `verify-vortex-fixtures.mjs`: verifica os bytes exportados pelo serviço PHP real.
@@ -27,8 +28,8 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 - `application/json`: payload atual; legacy continua aceite sem campos novos.
 - JSON v2, com ou sem anexo: `schema_version` inteiro `2`, `request_id` UUID.
   UUID v1–v8 são aceites (inclui v4/v5); a resposta conserva a capitalização recebida.
-- Com anexo: `multipart/form-data`; exatamente uma parte textual **payload** com
-  o JSON completo e uma parte de ficheiro **attachment** com bytes/nome/MIME.
+- Com ficheiros: `multipart/form-data`; exatamente uma parte textual **payload** com
+  o JSON completo, mais **attachment** (0..1) e/ou **logs** (0..1), pelo menos um.
   Não usar base64, URL de download ou JSON dentro de uma parte de ficheiro.
 - `type`: `bug` ou `feature`; `title`: 1–160 caracteres Unicode após trim;
   `description`: 1–4000 após trim. `website` vazio.
@@ -41,9 +42,39 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 - Verifica os bytes reais: assinatura PNG/IHDR, JPEG, PDF; TXT UTF-8 válido sem
   controlos binários. Isto identifica o formato, não é antivírus nem descodificação
   integral do documento. Nomes e texto são escapados ao construir HTML.
-- Limites auxiliares: JSON 64 KiB; corpo multipart 5 MiB + 64 KiB;
+- Limites auxiliares: JSON 64 KiB; corpo multipart 5 MiB + 2 MiB + 64 KiB;
   instance.name/user.name/user.username 512 caracteres, URL 2048, version 128,
   reported_at 80. São amplos para os valores normais enviados pelo Vortex.
+
+### Logs de 48 h (só `type: bug`)
+
+- Parte **logs**: nome exato `vortex-logs-48h.txt`, `text/plain` (charset, se existir,
+  `utf-8`), 1–**2097152 bytes** inclusivo, UTF-8 estrito, sem controlos C0/DEL além de
+  `\t\n\r` (o Vortex remove-os, incluindo ANSI). Senão 413/415/422 `*_logs*`.
+- `payload.logs`: `{"included": false}` ou `{"included": true, "hours": 48,
+  "bytes": <tamanho exato da parte>, "truncated": <bool>}`. Sem a chave = `included:false`
+  (NUCs v2 antigos). `included` tem de coincidir com a presença da parte (`logs_mismatch`).
+- O sha256 dos logs entra no fingerprint: o Vortex congela o snapshot por rascunho.
+  Bytes diferentes com o mesmo UUID → 409 `request_id_conflict`.
+- **Os logs nunca vão para o Plane.** Ordem: cria o ticket → grava
+  `<data-dir>/logs/<IDENT>-<seq>_<request_id>.txt` (0600, diretório 0700, write+fsync+rename+
+  fsync do diretório; mesmo nome com bytes diferentes nunca é sobrescrito) → PATCH da
+  descrição do ticket com a nota "Logs: 48 h, N bytes, truncado: sim/não; guardados no
+  n8n: `VORTEX-14_<uuid>.txt`" (substituição completa, repetível) → anexo do utilizador,
+  se existir → `completed`. A ledger guarda só a etapa e o nome, nunca o conteúdo.
+- Resposta: `logs_ref` com o nome do ficheiro (ou `null`); opcional para o Vortex,
+  mas o gate n8n exige-o, com o mesmo request_id, quando houve logs.
+- Retenção: **90 dias** (`VORTEX_INTAKE_LOGS_RETENTION_DAYS`), limpeza no arranque e
+  a cada 24 h por mtime. A nota no Plane fica; o ficheiro desaparece. Temporários
+  de escritas interrompidas são removidos após 1 h.
+
+#### Ir buscar os logs de um ticket
+
+Não há endpoint HTTP. Em produção os snapshots ficam no LXC em
+`/var/lib/vortex-intake/logs/`, acessíveis ao utilizador do serviço e a root.
+O [runbook LXC](deploy-lxc/README.md#ir-buscar-logs) explica como listar/copiar um
+ficheiro exato via `server03` / `pct exec 110`. Na alternativa Docker, o diretório
+é `/data/logs` no volume `vortex_intake_data`.
 
 ### Saída v2
 
@@ -55,7 +86,8 @@ Só **HTTP 200**, após confirmação do pedido e, se existir, do anexo:
   "request_id": "4b258dc1-9fa4-468d-8aac-107142d6fb11",
   "status": "completed",
   "work_item_id": "8f4c2b1e-0d3a-4f7b-9c21-6e5a8b7d4f13",
-  "attachment_id": null
+  "attachment_id": null,
+  "logs_ref": null
 }
 ```
 
@@ -100,7 +132,7 @@ Ativação futura requer atualizar expressões e ligar depois da conclusão com
 tratamento de falha independente; não basta clicar Enable.
 
 O adaptador é um processo Node24 sem dependências npm. SQLite nativo (`node:sqlite`)
-num volume Docker mantém fingerprint, etapa, IDs e, temporariamente, formulário
+em armazenamento persistente mantém fingerprint, etapa, IDs e, temporariamente, formulário
 assinado de upload. Não guarda texto do pedido nem bytes do anexo. Não há fila,
 worker, poller, aceitação em background ou dependência do histórico n8n.
 
@@ -125,7 +157,8 @@ worker, poller, aceitação em background ou dependência do histórico n8n.
   Upsert Plane não foi usado: a documentação avisa que dois upserts simultâneos
   podem criar duplicados.
 
-Orçamento:20s no adaptador,22s no HTTP Request n8n,30s no Vortex v2 (JSON também).
+Orçamento: 20s no adaptador, 22s no HTTP Request n8n, 30s no Vortex v2 (JSON também).
+Com logs: 45s no adaptador, 50s no n8n, 60s no Vortex; NPM >=65s.
 O upload NUC→n8n consome parte dos30s; ligações lentas podem falhar e exigir retry.
 O Vortex conserva ficheiro e UUID até receber a confirmação. O registo SQLite
 não permite recuperar os bytes se o utilizador abandonar/perder o rascunho.
@@ -153,7 +186,16 @@ SQLite online. Os formulários assinados são removidos do estado após conclus�
 o diretório tem modo0700 e o processo usa umask0077. Não imprimir o campo `state`
 inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request_id.
 
-## Rollout (não executado)
+## Rollout
+
+**Produção: LXC Proxmox + systemd**, sem Docker. Seguir o
+[runbook nativo](deploy-lxc/README.md), que inclui preflight, instalação, verificação,
+publicação e rollback. O adaptador usa loopback por omissão; não expor a porta8086
+no NPM nem na rede. Ver `deployment-status.md` para a evidência do rollout.
+
+### Alternativa Docker
+
+Os passos seguintes aplicam-se apenas a instalações Docker:
 
 1. Rever este diff e a compatibilidade Vortex. Exportar/backupar a versão atualmente
    publicada em n8n, incluindo bindings de credenciais. Não importar por cima sem
@@ -162,20 +204,22 @@ inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request
 2. Copiar a pasta `files/vortex-intake/adapter` juntamente com `plane/compose.yml`
    (o bind é `../files/vortex-intake/adapter`). Preencher as variáveis novas da
    `.env.example`: token interno diferente do token público, token Plane de serviço
-   com leitura/criação de work-items e leitura/criação/confirmação/eliminação de
+   com leitura/criação/atualização (PATCH da descrição) de work-items e leitura/criação/confirmação/eliminação de
    anexos, projeto/labels atuais e origins reais do storage. Nenhum secret está no
    repositório. Escolher/pinar a imagem Node24 aprovada na instalação.
-3. Rever NPM **na rota de feedback**: `client_max_body_size 6m` e timeout>=35s.
+3. Rever NPM **na rota de feedback**: `client_max_body_size 8m` e timeout>=65s.
    Verificar limites efetivos n8n (`N8N_PAYLOAD_SIZE_MAX`,
    `N8N_FORMDATA_FILE_SIZE_MAX`) e Plane/MinIO. Não reduzir globalmente limites usados
    por outros workflows. O limite funcional de5MiB é aplicado pelo adaptador.
 4. Subir apenas o serviço privado `vortex-intake` no compose existente; não tem
    porta publicada. Preservar o volume `vortex_intake_data`. A healthcheck verifica
    o processo/configuração/abertura SQLite, não credenciais remotas ou storage.
-5. Importar/reconciliar o workflow local; ligar a credencial pública original e
-   criar `Vortex Intake Internal`, Header Auth `X-Vortex-Intake-Token` igual ao
-   `VORTEX_INTAKE_TOKEN`. Não usar o token público nesse binding. Manter URL do
-   adaptador interna e notificações desativadas.
+5. Pôr o mesmo `VORTEX_INTAKE_TOKEN` no ambiente do `n8n-plane` (recriar o contentor:
+   breve indisponibilidade de todos os workflows) e do `vortex-intake`. Os nós
+   `Deliver *` enviam `X-Vortex-Intake-Token: {{ $env.VORTEX_INTAKE_TOKEN }}`, o mesmo
+   padrão de `$env.VORTEX_INTAKE_PLANE_API_KEY` na v1; não há credencial n8n extra.
+   Atualizar o workflow existente `ILGYB3HmUcG5Fz4g` (nunca importar um segundo com o
+   mesmo path) mantendo a credencial pública `Vortex Shared Secret` no Webhook.
 6. Em staging isolado e autorizado, verificar o parser multipart/nomes binários,
    APIs e permissões do Plane/storage reais, schemas HTTP4.2/Respond1.5/Webhook2.1,
    reinício e timeout. A leitura de schemas remota não executa nem testa esses APIs.
@@ -183,12 +227,12 @@ inteiro em logs/relatórios. Logs de falha contêm apenas código/status/request
    v2 recusará o202 antigo: publicar primeiro o cliente causa erros visíveis, não
    falso sucesso. A revisão de compatibilidade/publicação pertence à thread Vortex.
 
-### Rollback
+### Rollback Docker
 
 Reverter a publicação n8n usando o backup, mantendo caminho/token, e reverter ou
 indisponibilizar o formulário v2 coordenadamente: v2 não aceitará ACK202 do antigo.
 Não remover `vortex_intake_data`, nem mudar request_id nos rascunhos pendentes.
-Deixar as chamadas em curso terminar antes de parar o adaptador (grace35s).
+Deixar as chamadas em curso terminar antes de parar o adaptador (grace 55s).
 Na retoma, reusar o mesmo volume/ledger e credenciais. Nunca `docker compose down -v`.
 
 ## Verificação local reproduzível
@@ -200,7 +244,7 @@ node files/vortex-intake/build-workflow.mjs --check
 node --test files/vortex-intake/tests/*.test.mjs
 docker compose --env-file plane/.env.example -f plane/compose.yml config --quiet
 git diff --check
-node files/vortex-intake/verify-vortex-fixtures.mjs /home/gustavocaiano/.t3/worktrees/vortex/t3-5e85ae24/storage/framework/testing/feedback-contract
+node files/vortex-intake/verify-vortex-fixtures.mjs /path/to/vortex/storage/framework/testing/feedback-contract
 ```
 
 O último comando requer as fixtures geradas pelo exporter PHP do Vortex. Não altera
@@ -211,9 +255,8 @@ Os ficheiros binários estão incluídos; executar testes não requer Pillow/Pyt
 
 Testes cobrem validação, limite exato, HTML, contrato real HTTP (loopback), pipeline
 Plane/storage com mocks, schema de resposta, crash/restart, resultado ambíguo,
-concorrência, replay, expiração e perda de confirmação. Não houve chamada de webhook,
-execução/publicação n8n ou criação de issue/anexo real. A versão do pacote n8n e o
-storage/escopos efetivos da instalação ainda precisam de preflight em staging.
+concorrência, replay, expiração e perda de confirmação. Estes testes são offline; a evidência de validação no LXC e na instância real
+fica separada em `deployment-status.md`.
 
 ## Fontes de compatibilidade
 

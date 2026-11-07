@@ -1,10 +1,12 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { IntakeError, MAX_BODY_BYTES, errorResponse } from './contract.mjs';
 import { Intake } from './intake.mjs';
 import { Ledger } from './ledger.mjs';
 import { PlaneClient } from './plane.mjs';
+import { LogStore, DEFAULT_RETENTION_DAYS } from './logstore.mjs';
 
 export async function parseBody(req) {
   if (Number(req.headers['content-length']) > MAX_BODY_BYTES) throw new IntakeError(413, 'request_too_large');
@@ -19,7 +21,7 @@ export async function parseBody(req) {
   const type = req.headers['content-type'] ?? '';
   if (/^application\/json(?:;|$)/i.test(type)) {
     if (body.length > 65_536) throw new IntakeError(413, 'payload_too_large');
-    try { return { payload: JSON.parse(body.toString('utf8')), file: null }; }
+    try { return { payload: JSON.parse(body.toString('utf8')), file: null, logs: null }; }
     catch { throw new IntakeError(400, 'invalid_json'); }
   }
   if (!/^multipart\/form-data(?:;|$)/i.test(type)) throw new IntakeError(415, 'unsupported_transport');
@@ -27,14 +29,20 @@ export async function parseBody(req) {
   try {
     form = await new Request('http://localhost/intake', { method: 'POST', headers: { 'content-type': type }, body }).formData();
   } catch { throw new IntakeError(400, 'invalid_multipart'); }
-  if (form.getAll('payload').length !== 1 || form.getAll('attachment').length !== 1 ||
-      [...form.keys()].some((key) => !['payload', 'attachment'].includes(key))) throw new IntakeError(422, 'invalid_parts');
+  const keys = [...form.keys()];
+  const counts = (name) => form.getAll(name).length;
+  if (counts('payload') !== 1 || counts('attachment') > 1 || counts('logs') > 1 ||
+      counts('attachment') + counts('logs') === 0 ||
+      keys.some((key) => !['payload', 'attachment', 'logs'].includes(key))) throw new IntakeError(422, 'invalid_parts');
   const value = form.get('payload');
   const file = form.get('attachment');
-  if (typeof value !== 'string' || Buffer.byteLength(value) > 65_536 || typeof file === 'string') throw new IntakeError(422, 'invalid_parts');
+  const logs = form.get('logs');
+  if (typeof value !== 'string' || Buffer.byteLength(value) > 65_536 ||
+      typeof file === 'string' || typeof logs === 'string') throw new IntakeError(422, 'invalid_parts');
   let payload;
   try { payload = JSON.parse(value); } catch { throw new IntakeError(400, 'invalid_json'); }
-  return { payload, file: { name: file.name, type: file.type, bytes: Buffer.from(await file.arrayBuffer()) } };
+  const read = async (part) => part && { name: part.name, type: part.type, bytes: Buffer.from(await part.arrayBuffer()) };
+  return { payload, file: await read(file), logs: await read(logs) };
 }
 
 function authorized(actual, expected) {
@@ -45,7 +53,7 @@ function authorized(actual, expected) {
 }
 
 export function createIntakeServer(intake, token, logger = console) {
-  return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, async (req, res) => {
+  return createServer({ requestTimeout: 60_000, headersTimeout: 10_000 }, async (req, res) => {
     function send(status, body) {
       res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store',
         ...([409, 429, 503, 504].includes(status) ? { 'Retry-After': status === 429 ? '720' : '2' } : {}) });
@@ -58,7 +66,7 @@ export function createIntakeServer(intake, token, logger = console) {
     try {
       const parsed = await parseBody(req);
       payload = parsed.payload;
-      const result = await intake.submit(payload, parsed.file);
+      const result = await intake.submit(payload, parsed.file, parsed.logs);
       send(result.status, result.body);
     } catch (error) {
       req.resume();
@@ -83,8 +91,14 @@ export function configFromEnv(env) {
     bugLabel: env.VORTEX_INTAKE_BUG_LABEL,
     featureLabel: env.VORTEX_INTAKE_FEATURE_LABEL,
     token: env.VORTEX_INTAKE_TOKEN,
+    listenHost: env.VORTEX_INTAKE_LISTEN_HOST || '127.0.0.1',
     directory: env.VORTEX_INTAKE_DATA_DIR || '/data',
+    projectIdentifier: env.VORTEX_INTAKE_PLANE_PROJECT_IDENTIFIER || 'VORTEX',
+    logsRetentionDays: Number(env.VORTEX_INTAKE_LOGS_RETENTION_DAYS || DEFAULT_RETENTION_DAYS),
   };
+  if (!['127.0.0.1', '0.0.0.0'].includes(config.listenHost)) throw new Error('Invalid intake listen host');
+  if (!/^[A-Z][A-Z0-9]*$/.test(config.projectIdentifier)) throw new Error('Invalid Plane project identifier');
+  if (!Number.isInteger(config.logsRetentionDays) || config.logsRetentionDays < 1) throw new Error('Invalid logs retention');
   if (!config.baseUrl || !config.workspace || !config.project || !config.apiKey || !config.token ||
       /CHANGE-ME|change-me|xxxxx/.test(config.apiKey + config.token)) throw new Error('Missing intake configuration');
   const url = new URL(config.baseUrl);
@@ -102,9 +116,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const config = configFromEnv(process.env);
     const ledger = new Ledger(config.directory);
-    const intake = new Intake(ledger, new PlaneClient(config), config);
+    const logStore = new LogStore(join(config.directory, 'logs'), config.logsRetentionDays);
+    const prune = () => { try { logStore.prune(); } catch { console.error('vortex-intake logs prune failed'); } };
+    prune();
+    setInterval(prune, 86_400_000).unref();
+    const intake = new Intake(ledger, new PlaneClient(config), config, 20_000, { logStore });
     const server = createIntakeServer(intake, config.token);
-    server.listen(8086, '0.0.0.0', () => console.log('vortex-intake listening on :8086'));
+    server.listen(8086, config.listenHost, () => console.log(`vortex-intake listening on ${config.listenHost}:8086`));
     for (const event of ['SIGTERM', 'SIGINT']) process.on(event, () => {
       server.close(() => { ledger.close(); process.exit(0); });
     });
