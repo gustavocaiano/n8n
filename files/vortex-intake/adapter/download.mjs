@@ -91,6 +91,14 @@ Não imprimir o conteúdo dos logs em conversas ou tickets.</p>
 </body></html>`;
 }
 
+// Only allow-listed proxy peers reach this point, so these headers are theirs.
+// Cloudflare's CF-Visitor carries the visitor's scheme even when the tunnel
+// reaches NPM over plain HTTP (and NPM then forwards X-Forwarded-Proto: http).
+export function viaHttps(headers) {
+  if (headers['x-forwarded-proto'] === 'https') return true;
+  try { return JSON.parse(headers['cf-visitor'] ?? 'null')?.scheme === 'https'; } catch { return false; }
+}
+
 export function normalizePeer(address = '') {
   return address.startsWith('::ffff:') ? address.slice(7) : address;
 }
@@ -130,7 +138,7 @@ export function createDownloadServer({ links, logStore, basePath = '/', allowedP
     if (allowedPeers.length && !allowedPeers.includes(peer)) { req.socket.destroy(); return; }
     const target = route(req.url ?? '');
     if (target === null) return json(404, { status: 'error', code: 'not_found' });
-    if (requireHttps && req.headers['x-forwarded-proto'] !== 'https') return json(421, { status: 'error', code: 'https_required' });
+    if (requireHttps && !viaHttps(req.headers)) return json(421, { status: 'error', code: 'https_required' });
     if (target === 'robots') {
       res.writeHead(200, { ...NO_STORE, 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end(req.method === 'HEAD' ? undefined : 'User-agent: *\nDisallow: /\n');
