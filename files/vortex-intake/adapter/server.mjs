@@ -2,11 +2,14 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import { isIPv4 } from 'node:net';
 import { IntakeError, MAX_BODY_BYTES, errorResponse } from './contract.mjs';
 import { Intake } from './intake.mjs';
 import { Ledger } from './ledger.mjs';
 import { PlaneClient } from './plane.mjs';
 import { LogStore, DEFAULT_RETENTION_DAYS } from './logstore.mjs';
+import { LinkStore, MAX_TTL_DAYS } from './links.mjs';
+import { createDownloadServer, validPeerList } from './download.mjs';
 
 export async function parseBody(req) {
   if (Number(req.headers['content-length']) > MAX_BODY_BYTES) throw new IntakeError(413, 'request_too_large');
@@ -95,7 +98,35 @@ export function configFromEnv(env) {
     directory: env.VORTEX_INTAKE_DATA_DIR || '/data',
     projectIdentifier: env.VORTEX_INTAKE_PLANE_PROJECT_IDENTIFIER || 'VORTEX',
     logsRetentionDays: Number(env.VORTEX_INTAKE_LOGS_RETENTION_DAYS || DEFAULT_RETENTION_DAYS),
+    // One-time logs links: disabled unless a public HTTPS base URL is set.
+    logsLinkBase: env.VORTEX_INTAKE_LOGS_LINK_BASE || '',
+    logsLinkTtlDays: Number(env.VORTEX_INTAKE_LOGS_LINK_TTL_DAYS || MAX_TTL_DAYS),
+    logsDeliveredGraceHours: Number(env.VORTEX_INTAKE_LOGS_DELIVERED_GRACE_HOURS || 0),
+    downloadListenHost: env.VORTEX_INTAKE_DOWNLOAD_LISTEN_HOST || '127.0.0.1',
+    downloadPort: Number(env.VORTEX_INTAKE_DOWNLOAD_PORT || 8087),
+    downloadAllowedPeers: validPeerList(env.VORTEX_INTAKE_DOWNLOAD_ALLOWED_PEERS || ''),
   };
+  if (config.logsLinkBase) {
+    const base = new URL(config.logsLinkBase);
+    if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash ||
+        !base.pathname.endsWith('/') || base.href !== config.logsLinkBase || !/^[A-Za-z0-9.:/_-]+$/.test(base.href)) {
+      throw new Error('Invalid logs link base');
+    }
+    config.downloadBasePath = base.pathname;
+  }
+  if (!Number.isInteger(config.logsLinkTtlDays) || config.logsLinkTtlDays < 1 || config.logsLinkTtlDays > MAX_TTL_DAYS) {
+    throw new Error('Invalid logs link expiry');
+  }
+  if (!Number.isInteger(config.logsDeliveredGraceHours) || config.logsDeliveredGraceHours < 0 || config.logsDeliveredGraceHours > 72) {
+    throw new Error('Invalid delivered logs grace');
+  }
+  if (!Number.isInteger(config.downloadPort) || config.downloadPort < 1024 || config.downloadPort > 65535 || config.downloadPort === 8086) {
+    throw new Error('Invalid download port');
+  }
+  // Anything but loopback must name the reverse proxy peers explicitly.
+  if (!isIPv4(config.downloadListenHost) || (config.downloadListenHost !== '127.0.0.1' && !config.downloadAllowedPeers.length)) {
+    throw new Error('Invalid download listener');
+  }
   if (!['127.0.0.1', '0.0.0.0'].includes(config.listenHost)) throw new Error('Invalid intake listen host');
   if (!/^[A-Z][A-Z0-9]*$/.test(config.projectIdentifier)) throw new Error('Invalid Plane project identifier');
   if (!Number.isInteger(config.logsRetentionDays) || config.logsRetentionDays < 1) throw new Error('Invalid logs retention');
@@ -117,14 +148,30 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const config = configFromEnv(process.env);
     const ledger = new Ledger(config.directory);
     const logStore = new LogStore(join(config.directory, 'logs'), config.logsRetentionDays);
-    const prune = () => { try { logStore.prune(); } catch { console.error('vortex-intake logs prune failed'); } };
+    // The links table always exists, so expiry keeps running after a rollback.
+    const links = new LinkStore(ledger.db);
+    links.recoverInterrupted(Date.now());
+    const graceMs = config.logsDeliveredGraceHours * 3_600_000;
+    const prune = () => {
+      try { links.prune(logStore, Date.now(), graceMs); logStore.prune(Date.now(), links.refs()); }
+      catch { console.error('vortex-intake logs prune failed'); }
+    };
     prune();
-    setInterval(prune, 86_400_000).unref();
-    const intake = new Intake(ledger, new PlaneClient(config), config, 20_000, { logStore });
+    setInterval(prune, 3_600_000).unref();
+    const intake = new Intake(ledger, new PlaneClient(config), config, 20_000, { logStore, links });
     const server = createIntakeServer(intake, config.token);
     server.listen(8086, config.listenHost, () => console.log(`vortex-intake listening on ${config.listenHost}:8086`));
+    const servers = [server];
+    if (config.logsLinkBase) {
+      const download = createDownloadServer({ links, logStore, basePath: config.downloadBasePath,
+        allowedPeers: config.downloadAllowedPeers, graceMs });
+      download.listen(config.downloadPort, config.downloadListenHost,
+        () => console.log(`vortex-intake logs links on ${config.downloadListenHost}:${config.downloadPort}`));
+      servers.push(download);
+    }
     for (const event of ['SIGTERM', 'SIGINT']) process.on(event, () => {
-      server.close(() => { ledger.close(); process.exit(0); });
+      let open = servers.length;
+      for (const item of servers) item.close(() => { if (--open === 0) { ledger.close(); process.exit(0); } });
     });
   } catch {
     console.error('vortex-intake startup failed: verify configuration, volume permissions and single-instance lock');

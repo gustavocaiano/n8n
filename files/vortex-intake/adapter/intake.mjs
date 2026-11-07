@@ -1,5 +1,6 @@
 import { IntakeError, normalize, planeIssue, completed, logsNote } from './contract.mjs';
 import { LogStore } from './logstore.mjs';
+import { DAY_MS, linkUrl, newToken } from './links.mjs';
 
 // Plane attachments, each with its own resumable stage. Logs are NOT a slot:
 // they are stored locally (LogStore) and only a note is added to the work item.
@@ -7,13 +8,17 @@ const SLOTS = [{ name: 'attachment', suffix: 'file' }];
 const FILE_STAGES = ['creating_attachment', 'replacing_attachment', 'uploading', 'confirming'];
 
 export class Intake {
-  constructor(ledger, plane, config, budgetMs = 20_000, { logsBudgetMs = 45_000, logStore = null } = {}) {
+  constructor(ledger, plane, config, budgetMs = 20_000,
+    { logsBudgetMs = 45_000, logStore = null, links = null, now = Date.now } = {}) {
     this.ledger = ledger;
     this.plane = plane;
     this.config = config;
     this.budgetMs = budgetMs;
     this.logsBudgetMs = logsBudgetMs;
     this.logStore = logStore;
+    // One-time links are created only when a public base URL is configured.
+    this.links = config.logsLinkBase ? links : null;
+    this.now = now;
     this.active = new Set();
   }
 
@@ -141,10 +146,24 @@ export class Intake {
       state.logs = { stage: 'stored', ref };
       this.save(input, state);
     }
-    if (state.logs.stage === 'stored') {
+    if (state.logs.stage === 'stored' && this.links) {
+      // Token + link row + ledger state commit together: a retry reuses the same
+      // token for the (idempotent) note, and never creates a second link.
+      const token = newToken();
+      this.links.transaction(() => {
+        const expiresAt = this.links.insert(token, { ref: state.logs.ref, bytes: input.logs.size, sha256: input.logs.sha256 },
+          this.now(), (this.config.logsLinkTtlDays ?? 15) * DAY_MS);
+        state.logs = { stage: 'linked', ref: state.logs.ref, link: { token, expiresAt } };
+        this.save(input, state);
+      });
+    }
+    if (state.logs.stage === 'stored' || state.logs.stage === 'linked') {
+      // Links disabled mid-flight (rollback): note without the link; the row still expires.
+      const link = state.logs.link && this.config.logsLinkBase && { url: linkUrl(this.config.logsLinkBase, state.logs.link.token), expiresAt: state.logs.link.expiresAt };
       // Re-sending the full description is idempotent; Plane never gets the content.
-      await this.plane.updateDescription(state.issueId, issue.description_html + logsNote(input, state.logs.ref), signal);
-      state.logs.stage = 'noted';
+      await this.plane.updateDescription(state.issueId, issue.description_html + logsNote(input, state.logs.ref, link), signal);
+      // The note now holds the only copy of the token; drop it from the ledger.
+      state.logs = { stage: 'noted', ref: state.logs.ref, ...(link ? { linkExpiresAt: link.expiresAt } : {}) };
       this.save(input, state);
     }
   }

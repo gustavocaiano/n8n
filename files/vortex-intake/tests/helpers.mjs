@@ -5,6 +5,7 @@ import { Ledger } from '../adapter/ledger.mjs';
 import { Intake } from '../adapter/intake.mjs';
 import { PlaneError } from '../adapter/plane.mjs';
 import { LogStore } from '../adapter/logstore.mjs';
+import { LinkStore } from '../adapter/links.mjs';
 
 export const config = { baseUrl: 'https://plane.invalid', workspace: 'test', project: 'test', apiKey: 'not-a-secret-test-only',
   storageOrigins: ['https://storage.invalid'], bugLabel: 'bug-label', featureLabel: 'feature-label' };
@@ -69,15 +70,18 @@ export function withLogs(file = logsFile(), extra = {}) {
   return { ...payload, logs: { included: true, hours: 48, bytes: file.bytes.length, truncated: false, ...extra } };
 }
 
-export function setup(t, budget = 20_000) {
+export const linkBase = 'https://logs.invalid/vortex-logs/';
+export function setup(t, budget = 20_000, { links: withLinks = false, clock = { now: Date.now() } } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'vortex-intake-test-'));
   let ledger = new Ledger(directory);
+  let links = new LinkStore(ledger.db);
   const plane = new FakePlane();
   const logStore = new LogStore(join(directory, 'logs'));
-  const make = () => new Intake(ledger, plane, config, budget, { logStore });
+  const intakeConfig = withLinks ? { ...config, logsLinkBase: linkBase, logsLinkTtlDays: 15 } : config;
+  const make = () => new Intake(ledger, plane, intakeConfig, budget, { logStore, links, now: () => clock.now });
   let intake = make();
   t.after(() => { ledger.close(); rmSync(directory, { recursive: true, force: true }); });
-  return { directory, plane, get ledger() { return ledger; }, get intake() { return intake; },
+  return { directory, plane, clock, get ledger() { return ledger; }, get intake() { return intake; }, get links() { return links; },
     logStore, logsDir: join(directory, 'logs'),
-    restart() { ledger.close(); ledger = new Ledger(directory); intake = make(); } };
+    restart() { ledger.close(); ledger = new Ledger(directory); links = new LinkStore(ledger.db); intake = make(); } };
 }
