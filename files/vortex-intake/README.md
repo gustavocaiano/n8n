@@ -59,7 +59,8 @@ A alteração preexistente `user.username` foi preservada na nova normalização
 - **Os logs nunca vão para o Plane.** Ordem: cria o ticket → grava
   `<data-dir>/logs/<IDENT>-<seq>_<request_id>.txt` (0600, diretório 0700, write+fsync+rename+
   fsync do diretório; mesmo nome com bytes diferentes nunca é sobrescrito) → PATCH da
-  descrição do ticket com a nota "Logs: 48 h, N bytes, truncado: sim/não; guardados no
+  descrição do ticket com a nota "O utilizador enviou logs das últimas 48 horas.
+  N bytes, truncado: sim/não; guardados no
   n8n: `VORTEX-14_<uuid>.txt`" (substituição completa, repetível) → anexo do utilizador,
   se existir → `completed`. A ledger guarda só a etapa e o nome, nunca o conteúdo.
 - Resposta: `logs_ref` com o nome do ficheiro (ou `null`); opcional para o Vortex,

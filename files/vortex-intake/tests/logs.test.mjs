@@ -75,7 +75,7 @@ test('logs: stored privately as <ticket>_<request_id>.txt; Plane only gets a not
   assert.equal(statSync(ctx.logsDir).mode & 0o777, 0o700);
   assert.equal(ctx.plane.count('createAttachment'), 0);
   const html = ctx.plane.issues[0].description_html;
-  assert.match(html, /Logs:<\/strong> 48 h, \d+ bytes, truncado: não; guardados no n8n: <code>VORTEX-14_/);
+  assert.match(html, /O utilizador enviou logs das últimas 48 horas\.<\/strong><br>\d+ bytes, truncado: não; guardados no n8n: <code>VORTEX-14_/);
   assert.ok(!html.includes('local.ERROR'), 'log content must never reach Plane');
   assert.ok(!JSON.stringify(ctx.plane.calls).includes('local.ERROR'));
   assert.ok(!JSON.stringify(ctx.ledger.get(payload.request_id)).includes('local.ERROR'), 'ledger keeps no content');
