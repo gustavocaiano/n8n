@@ -155,7 +155,8 @@ export function completed(input, state) {
 // Logs never reach Plane: only this short note, appended once the file is stored.
 export function logsNote(input, ref) {
   const { hours, size, truncated } = input.logs;
-  return `<p><strong>Logs:</strong> ${hours} h, ${size} bytes, truncado: ${truncated ? 'sim' : 'não'}; ` +
+  return `<p><strong>O utilizador enviou logs das últimas ${hours} horas.</strong><br>` +
+    `${size} bytes, truncado: ${truncated ? 'sim' : 'não'}; ` +
     `guardados no n8n: <code>${ref.replace(/[^A-Za-z0-9._-]/g, '')}</code></p>`;
 }
 
