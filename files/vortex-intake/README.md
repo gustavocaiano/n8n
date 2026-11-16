@@ -8,7 +8,7 @@ workspace `novaforensic`, projeto `VORTEX`.
 ## Ficheiros
 
 - `../../workflows/vortex-intake.workflow.json`: workflow importável.
-- `build-workflow.mjs`, `normalize.js`, `response.js`: configuração e fontes dos Code nodes.
+- `build-workflow.mjs`, `normalize.js`, `response.js`, `notify.js`: configuração e fontes dos Code nodes.
 - `adapter/{server,contract,ledger,plane,intake,logstore}.mjs`: adaptador HTTP síncrono,
   validação, SQLite, entrega/recuperação no Plane e armazenamento privado dos logs.
 - `adapter/{links,download}.mjs`: links de utilização única para os logs (opcional).
@@ -167,10 +167,10 @@ foi enviada. Erros posteriores são registados sem payload/segredos nos logs.
 ## Entrega e idempotência
 
 O workflow recebe/autentica, normaliza, encaminha JSON ou binário para
-`http://vortex-intake:8086/intake`, valida a confirmação e responde. Telegram/email
-continuam desativados **e desligados do grafo**: são apenas os templates anteriores.
-Ativação futura requer atualizar expressões e ligar depois da conclusão com
-tratamento de falha independente; não basta clicar Enable.
+`http://vortex-intake:8086/intake`, valida a confirmação, responde e, **depois** de
+responder, avisa no Telegram ([Notificação Telegram](#notificação-telegram)). O email
+continua a ser o template anterior, desativado **e desligado do grafo**; ligá-lo exige o
+mesmo cuidado (depois da conclusão, com falha independente); não basta clicar Enable.
 
 O adaptador é um processo Node24 sem dependências npm. SQLite nativo (`node:sqlite`)
 em armazenamento persistente mantém fingerprint, etapa, IDs e, temporariamente, formulário
@@ -203,6 +203,56 @@ Com logs: 45s no adaptador, 50s no n8n, 60s no Vortex; NPM >=65s.
 O upload NUC→n8n consome parte dos30s; ligações lentas podem falhar e exigir retry.
 O Vortex conserva ficheiro e UUID até receber a confirmação. O registo SQLite
 não permite recuperar os bytes se o utilizador abandonar/perder o rascunho.
+
+## Notificação Telegram
+
+Cada intake **confirmado** (v2 `completed`, ou legacy concluído) gera uma mensagem no Telegram.
+
+- **Ordem:** `Respond to Vortex` → `Build Telegram message` → `Telegram`; no ramo legacy,
+  `V2 response?` (saída falsa) → `Build Telegram message`. A mensagem só é montada depois de
+  a resposta ao Vortex ter saído: nunca a atrasa nem a altera.
+- **Falha isolada:** os dois nós têm `onError: continueRegularOutput` e não repetem. Um erro
+  do Telegram não afeta o Vortex nem o ticket. Como o workflow não guarda execuções
+  (privacidade), **uma falha do Telegram não deixa rasto**: validar com o teste abaixo.
+- **Conteúdo** (`notify.js`): tipo, instância, título, descrição (até 500 caracteres),
+  utilizador, versão, URL da instância, se houve anexo/logs (só a indicação e o tamanho) e,
+  quando há logs, o número do ticket (vem de `logs_ref`). Nunca inclui logs, anexos nem emails.
+- **HTML explícito:** o nó Telegram do n8n aplica Markdown quando não há `parse_mode`, e um
+  `_`, `*` ou `[` desemparelhado no texto de um utilizador faria o Telegram recusar a
+  mensagem inteira. Por isso envia `parse_mode: HTML` e escapa `& < >` em todo o texto do
+  utilizador. Sem pré-visualização de links e sem o rodapé «sent automatically with n8n».
+- **Silencioso até estar configurado:** com o placeholder `CHANGE-ME-chat-id` (ou qualquer
+  valor que não seja um id numérico ou `@canal`) não envia nada.
+- **Replay:** um pedido repetido com o mesmo `request_id` (resposta perdida) volta a
+  notificar; não há deduplicação.
+
+### Configurar (fora do git)
+
+1. Bot dedicado: `@BotFather` → `/newbot`. O token é um segredo: só entra na credencial do
+   n8n, nunca no repo, em tickets ou em chats.
+2. Abrir o bot e carregar em **Start** (um bot não pode iniciar a conversa); num grupo,
+   adicioná-lo e mencioná-lo.
+3. Obter o chat id (privado: positivo; grupo: negativo, `-100…`) sem deixar o token no
+   histórico da shell:
+   ```sh
+   read -rs BOT_TOKEN   # cola o token e Enter
+   curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates" \
+     | jq '.result[] | (.message // .my_chat_member).chat | {id, type, title, username}'
+   ```
+4. n8n: Credentials → **Telegram API** (Access Token = o token) e escolhê-la no nó `Telegram`.
+5. Nó `Config` → `telegramChatId` = o id. Fica só no n8n: o repo mantém o placeholder.
+6. Atualizar o workflow existente `ILGYB3HmUcG5Fz4g` por operações nos nós (nunca importar um
+   segundo com o mesmo path). Importar o JSON do repo por cima apagaria o chat id e as ligações
+   de credenciais.
+
+### Verificar
+
+Executar o workflow com um pedido v2 sintético (título «[TESTE] …», `request_id` fixo: as
+repetições são replays e não criam outro ticket; o primeiro cria um ticket de teste no Plane).
+O nó `Telegram` deve devolver `ok: true` e o texto entregue deve coincidir com o do nó
+`Build Telegram message`. Pelo MCP: `execute_workflow` em modo `manual` com `webhookData`; como
+as execuções manuais não são gravadas, ligar temporariamente `saveManualExecutions` no **draft**
+para ler a saída do nó e repor depois. Usar `_ * [ ] < > &` na descrição para provar o escape.
 
 ## Recuperação operacional
 
@@ -296,7 +346,7 @@ Os ficheiros binários estão incluídos; executar testes não requer Pillow/Pyt
 
 Testes cobrem validação, limite exato, HTML, contrato real HTTP (loopback), pipeline
 Plane/storage com mocks, schema de resposta, crash/restart, resultado ambíguo,
-concorrência, replay, expiração e perda de confirmação; e links de logs (`tests/links.test.mjs`: scanners GET/HEAD, concorrência, interrupção, crash, expiry, replay, adulteração, headers/CSP, configuração). Estes testes são offline; a evidência de validação no LXC e na instância real
+concorrência, replay, expiração e perda de confirmação; e links de logs (`tests/links.test.mjs`: scanners GET/HEAD, concorrência, interrupção, crash, expiry, replay, adulteração, headers/CSP, configuração); e a notificação Telegram (`tests/notify.test.mjs`: só após confirmação, chat id em falta, escape HTML, truncagem, ordem no grafo, sem segredos no JSON). Estes testes são offline; a evidência de validação no LXC e na instância real
 fica separada em `deployment-status.md`.
 
 ## Fontes de compatibilidade

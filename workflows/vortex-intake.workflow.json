@@ -8,12 +8,12 @@
       "typeVersion": 1,
       "position": [
         0,
-        -220
+        -260
       ],
       "parameters": {
-        "content": "## Vortex feedback v2 → Plane\n\nSynchronous v2 + private logs. Production status: files/vortex-intake/deployment-status.md.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.",
+        "content": "## Vortex feedback v2 → Plane\n\nSynchronous v2 + private logs. Production status: files/vortex-intake/deployment-status.md.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram: after a CONFIRMED intake, Build Telegram message → Telegram run AFTER the response to Vortex, errors ignored (they never affect the intake). The chat id (Config) and the bot credential live only in n8n, never in git; the placeholder keeps it silent.\nEmail remains disabled and disconnected.",
         "width": 720,
-        "height": 380
+        "height": 420
       }
     },
     {
@@ -567,28 +567,49 @@
       }
     },
     {
+      "id": "vortex-intake-build-telegram-message",
+      "name": "Build Telegram message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        240
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// n8n Code node: build the Telegram text for a CONFIRMED intake, never before.\n// It runs after the response to Vortex (v2) or after the legacy completion, so it can only\n// add a message: any problem returns no items and never affects Vortex or the Plane ticket.\n// Sent with parse_mode HTML (the n8n Telegram node would otherwise apply Markdown, where one stray\n// \"_\", \"*\" or \"[\" in user text makes Telegram reject the whole message). Every user-written piece\n// goes through field(): cleaned, capped, THEN escaped (&, <, >), so it always renders literally.\n// Logs, attachment contents and e-mail addresses are never included.\ntry {\n  const request = $('Normalize request').first()?.json ?? {};\n  if (request.valid !== true) return [];\n  const outcome = $('Validate confirmation').first()?.json ?? {};\n  if (outcome.httpStatus !== 200 || outcome.response?.status !== 'completed') return [];\n  // Fresh imports keep the CHANGE-ME placeholder: stay silent until a real chat id is set.\n  const chatId = String($('Config').first()?.json?.telegramChatId ?? '').trim();\n  if (!/^(-?\\d{5,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$/.test(chatId)) return [];\n\n  const payload = request.payload ?? {};\n  const clean = (value, max) => {\n    const text = (typeof value === 'string' ? value : '')\n      .replace(/\\r\\n?/g, '\\n')\n      .replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F\\u202A-\\u202E\\u2066-\\u2069]/g, ' ')\n      .replace(/\\n{3,}/g, '\\n\\n').trim();\n    const chars = Array.from(text);\n    return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : text;\n  };\n  const field = (value, max) => clean(value, max).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n  const instanceName = field(payload.instance?.name, 100);\n  const instanceUrl = field(payload.instance?.url, 200);\n  const userName = field(payload.user?.name, 100);\n  const username = field(payload.user?.username, 100);\n  const version = field(payload.version, 40);\n  const description = field(payload.description, 500);\n\n  const who = [userName, username && `(${username})`].filter(Boolean).join(' ');\n  const by = [who && `Por: ${who}`, version && `Vortex ${version}`].filter(Boolean).join(' · ');\n  const bytes = payload.logs?.bytes;\n  const files = [\n    request.hasAttachment && '📎 Anexo',\n    request.hasLogs && `🧾 Logs 48 h${Number.isInteger(bytes) && bytes > 0 ? `: ${bytes} bytes` : ''}${payload.logs?.truncated ? ' (truncados)' : ''}`,\n  ].filter(Boolean).join(' · ');\n  // The adapter only exposes the ticket number through logs_ref (\"VORTEX-22_<uuid>.txt\").\n  const ticket = /^([A-Z][A-Z0-9]*-\\d+)_/.exec(outcome.response?.logs_ref ?? '')?.[1];\n\n  const lines = [\n    `${payload.type === 'bug' ? '🐞 Bug' : '✨ Feature'}${instanceName ? ` de ${instanceName}` : ''}`,\n    field(payload.title, 160),\n    description && `\\n${description}\\n`,\n    by, instanceUrl && `Instância: ${instanceUrl}`, files, ticket && `Ticket: ${ticket}`,\n  ].filter((line) => line !== '' && line !== undefined && line !== false && line !== null);\n  return [{ json: { notifyText: lines.join('\\n').replace(/\\n{3,}/g, '\\n\\n') } }];\n} catch {\n  return [];\n}\n"
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "b7f0c2d3-0007-4a07-9a07-vortextg001",
-      "name": "Telegram (desativado)",
+      "name": "Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        0,
-        740
+        2380,
+        240
       ],
-      "disabled": true,
       "parameters": {
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "={{ $('Config').first().json.telegramChatId }}",
         "text": "={{ $json.notifyText }}",
-        "additionalFields": {}
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
       },
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_ME",
           "name": "Vortex intake bot"
         }
-      }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
     },
     {
       "id": "b8f0c2d3-0008-4a08-9a08-vortexmail01",
@@ -811,6 +832,35 @@
         [
           {
             "node": "Respond to Vortex",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Telegram message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Vortex": {
+      "main": [
+        [
+          {
+            "node": "Build Telegram message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Telegram message": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
             "type": "main",
             "index": 0
           }
