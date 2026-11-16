@@ -82,3 +82,64 @@ continua sujeito aos checks desse MR.
 A reinstalação com preservação de estado foi exercitada; não foi necessário
 executar rollback do workflow. Backups contêm configuração privada: não os anexar
 a MRs nem a mensagens.
+
+# Notificação Telegram — 2026-11-16
+
+O mesmo workflow `ILGYB3HmUcG5Fz4g` passou a avisar no Telegram cada intake confirmado
+([comportamento e configuração](README.md#notificação-telegram)).
+
+- Publicado pelo MCP: `activeVersionId=e134c629-2e1e-47bb-b46b-d180d6c0b8aa`, igual ao draft
+  verificado e a `workflows/vortex-intake.workflow.json` (20 nós, mesmas ligações). Só diferem
+  o `telegramChatId` e a ligação à credencial, que são valores do n8n e não entram no git.
+  Versão anterior (rollback): `d972a276-619f-40ae-9f56-0016c1d241e3`.
+- Bot dedicado `@nf_vortex_bot`; credencial n8n «vortex» (Telegram API). Token e chat id só
+  no n8n. Destino inicial: chat privado do Gustavo; no mesmo dia passou para um grupo (ver o
+  fim deste ficheiro).
+- O fluxo existente não mudou. A diferença para a versão anterior são os nós
+  `Build Telegram message` e `Telegram` (ligados depois de `Respond to Vortex` e do ramo legacy),
+  o `telegramChatId` e a nota do sticky.
+
+## Evidência (no draft, antes de publicar)
+
+- `test_workflow` com dados simulados: `success`.
+- Execuções manuais reais com um pedido v2 sintético: o adaptador criou o ticket de teste
+  **VRTX-28** («[TESTE] Notificação Telegram do Vortex intake — pode apagar»,
+  `external_id=vortex-17d8f3d8-7559-4bbf-85bc-e8f5a91ffb68`; pode ser apagado). As repetições
+  foram replays (mesmos IDs, sem ticket novo). Ordem observada: `Respond to Vortex` →
+  `Build Telegram message` → `Telegram`.
+- **Defeito encontrado e corrigido:** o nó Telegram aplica Markdown por defeito. A 1.ª execução
+  tirou os parênteses retos de `[TESTE]` e transformou `_itálico_`, `*bold*` e `[link](…)` em
+  formatação; um `_`, `*` ou `[` desemparelhado teria feito o Telegram recusar a mensagem
+  (e o erro é ignorado de propósito). Agora `parse_mode: HTML` com `& < >` escapados: a
+  repetição entregou o texto literal, com `ok: true`, só entidades `url`, sem rodapé do n8n
+  e com pré-visualização desativada.
+- `saveManualExecutions` foi ligado só no draft para ler a saída do nó Telegram e reposto a
+  `false` antes de publicar (confirmado nas definições da versão publicada).
+
+## Limites
+
+- Não há prova observável de uma execução **de produção** com Telegram: o workflow não guarda
+  execuções (`saveData*Execution=none`, de propósito). O primeiro intake real depois da
+  publicação confirma o caminho; a confirmação é a mensagem chegar.
+- Uma falha do Telegram é ignorada e não deixa rasto. Se as mensagens deixarem de chegar,
+  repetir o teste descrito no README.
+- Rollback: `restore_workflow_version` para `d972a276-…` e publicar; ou só
+  `setNodeDisabled` no nó `Telegram`.
+
+## Destino passou para um grupo — 2026-11-16
+
+O bot foi adicionado a um grupo do Telegram e `Config.telegramChatId` passou a ser o id desse
+grupo (só no n8n; ids de grupo são negativos). Publicado
+`331e0dd8-9666-4383-b112-4662316f4dc5` (anterior: `e134c629-2e1e-47bb-b46b-d180d6c0b8aa`, com o
+chat privado). A diferença foi verificada nó a nó: só `telegramChatId`; ligações e definições
+iguais.
+
+- Antes de publicar, um `sendMessage` direto à API para o grupo devolveu `ok: true` (o bot
+  consegue escrever lá).
+- Todos os membros do grupo veem cada feedback (título, descrição, nome/utilizador, URL da
+  instância): manter o grupo privado e só com quem deve ver.
+- Se o grupo for convertido em supergrupo (tópicos, público…), o id muda (`-123…` para
+  `-100…`) e é preciso atualizar o `telegramChatId`. Com tópicos, o nó Telegram suporta
+  `message_thread_id` (não configurado: as mensagens vão para o tópico Geral).
+- Voltar ao chat privado: trocar o `telegramChatId`, ou `restore_workflow_version` para
+  `e134c629-…` e publicar.

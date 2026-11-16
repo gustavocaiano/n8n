@@ -43,13 +43,28 @@ function http(name, parts, y) {
   }, 1280, y, { retryOnFail: false, onError: 'continueRegularOutput' });
 }
 const note = original('Sticky Note - Setup');
-note.parameters.content = '## Vortex feedback v2 → Plane\n\nSynchronous v2 + private logs. Production status: files/vortex-intake/deployment-status.md.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram/email remain disabled and disconnected. Rewire only after successful completion, with independent failure handling.';
-note.position = [0, -220];
+note.parameters.content = '## Vortex feedback v2 → Plane\n\nSynchronous v2 + private logs. Production status: files/vortex-intake/deployment-status.md.\n\nSee files/vortex-intake/README.md for deployment, credentials, recovery and tests.\n\nSame public URL/token. JSON legacy + JSON v2; multipart payload + attachment and/or logs (bug only).\nV2: only HTTP 200 completed after issue + every file (attachment, logs) is confirmed. Legacy JSON retains early202 (no delivery guarantee).\n\nPrivate adapter uses a SQLite ledger and a single-instance lock; client retains bytes on failure.\nWebhook uses Vortex Shared Secret; adapter header X-Vortex-Intake-Token comes from $env.VORTEX_INTAKE_TOKEN.\nNever enable blind HTTP retries.\n\nTelegram: after a CONFIRMED intake, Build Telegram message → Telegram run AFTER the response to Vortex, errors ignored (they never affect the intake). The chat id (Config) and the bot credential live only in n8n, never in git; the placeholder keeps it silent.\nEmail remains disabled and disconnected.';
+note.position = [0, -260];
 note.parameters.width = 720;
-note.parameters.height = 380;
-const disabled = ['Telegram (desativado)', 'Email (desativado)'].map((name, i) => {
-  const n = original(name); n.disabled = true; n.position = [i * 280, 740]; return n;
+note.parameters.height = 420;
+// Email stays an unwired template. Telegram is live: it is rebuilt from its previous node so ids and
+// the credential binding survive, and so a second run of this script (--check) yields the same file.
+const disabled = ['Email (desativado)'].map((name) => {
+  const n = original(name); n.disabled = true; n.position = [280, 740]; return n;
 });
+const telegramBase = original('Telegram') ?? original('Telegram (desativado)');
+const telegram = { id: telegramBase.id, name: 'Telegram', type: telegramBase.type, typeVersion: telegramBase.typeVersion,
+  position: [2380, 240],
+  parameters: { resource: 'message', operation: 'sendMessage', chatId: "={{ $('Config').first().json.telegramChatId }}",
+    text: '={{ $json.notifyText }}',
+    // HTML parse mode is explicit because the node applies Markdown otherwise; notify.js escapes user text for it.
+    // No n8n footer, and no link preview fetching the customer's instance URL.
+    additionalFields: { appendAttribution: false, disable_web_page_preview: true, parse_mode: 'HTML' } },
+  credentials: telegramBase.credentials,
+  // A Telegram outage must never turn a confirmed intake into an error, nor trigger a blind retry.
+  retryOnFail: false, onError: 'continueRegularOutput' };
+const notifier = node('Build Telegram message', 'code', 2, { mode: 'runOnceForAllItems', jsCode: code('notify.js') }, 2160, 240,
+  { retryOnFail: false, onError: 'continueRegularOutput' });
 const nodes = [note, webhook, config,
   node('Normalize request', 'code', 2, { mode: 'runOnceForAllItems', jsCode: code('normalize.js') }, 440),
   condition('Valid transport?', 'valid', 660), condition('Legacy client?', 'legacy', 800),
@@ -63,7 +78,7 @@ const nodes = [note, webhook, config,
   node('Respond to Vortex', 'respondToWebhook', 1.5, { respondWith: 'json', responseBody: '={{ JSON.stringify($json.response) }}',
     options: { responseCode: '={{ $json.httpStatus }}', responseHeaders: { entries: [
       { name: 'Cache-Control', value: 'no-store' }, { name: 'Retry-After', value: "={{ $json.retryAfter || '0' }}" },
-    ] } } }, 1940), ...disabled];
+    ] } } }, 1940), notifier, telegram, ...disabled];
 const connections = {};
 function edge(from, to, output = 0) {
   connections[from] ??= { main: [] };
@@ -79,6 +94,9 @@ edge('Has attachment?', 'Attachment and logs?'); edge('Has attachment?', 'Delive
 edge('Attachment and logs?', 'Deliver attachment and logs'); edge('Attachment and logs?', 'Deliver with attachment', 1);
 for (const name of ['Deliver attachment and logs', 'Deliver with attachment', 'Deliver logs', 'Deliver JSON']) edge(name, 'Validate confirmation');
 edge('Validate confirmation', 'V2 response?'); edge('V2 response?', 'Respond to Vortex');
+// Notify only after the answer to Vortex went out (v2) or after the legacy completion (v2 = false branch).
+edge('Respond to Vortex', 'Build Telegram message'); edge('V2 response?', 'Build Telegram message', 1);
+edge('Build Telegram message', 'Telegram');
 const candidate = { name: current.name, nodes, connections,
   settings: { executionOrder: 'v1', saveDataSuccessExecution: 'none', saveDataErrorExecution: 'none', saveManualExecutions: false, saveExecutionProgress: false },
   meta: { templateCredsSetupCompleted: false } };
