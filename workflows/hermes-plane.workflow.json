@@ -1,0 +1,488 @@
+{
+  "name": "Plane comment created → Hermes",
+  "nodes": [
+    {
+      "id": "hermes-plane-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hermes/plane-comment-created",
+        "authentication": "none",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true,
+          "binaryPropertyName": "data"
+        }
+      },
+      "webhookId": "hermes-plane-webhook"
+    },
+    {
+      "id": "hermes-plane-verify-and-filter",
+      "name": "Verify and filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const source = \"plane\";\nconst { createHmac, timingSafeEqual } = require('crypto');\nconst reply = (status, result) => ({ status, result });\nconst uuid = (value) => typeof value === 'string' &&\n  /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value);\nconst integrationMarker = (value) => value != null && value !== '';\nconst maxBodyBytes = 1024 * 1024;\nconst ticketCreated = 'abilio.ticket.created';\nconst commentCreated = 'workitem.comment.created';\nconst closeCommand = /^@hermes fecha no Abílio(?: — disponível na (v?[0-9]{1,4}(?:\\.[0-9]{1,4}){0,2}))?$/u;\n\nasync function receive() {\n  const abilio = source === 'abilio';\n  const secret = abilio ? $env.HERMES_BRIDGE_ABILIO_WEBHOOK_SECRET : $env.HERMES_BRIDGE_PLANE_WEBHOOK_SECRET;\n  if (!secret) return reply(503, 'bridge_unconfigured');\n\n  const input = $input.first();\n  const headers = input.json.headers ?? {};\n  const signature = headers[abilio ? 'x-abilio-ticket-signature' : 'x-plane-signature'];\n  if (typeof signature !== 'string' || !/^[0-9a-f]{64}$/i.test(signature)) {\n    return reply(401, 'invalid_signature');\n  }\n  const binary = input.binary?.data;\n  if (!binary) return reply(400, 'missing_body');\n  if (!Number.isSafeInteger(binary.bytes) || binary.bytes < 1 || binary.bytes > maxBodyBytes) {\n    return reply(413, 'body_too_large');\n  }\n\n  // The Webhook node streams the body as binary before n8n's JSON parser runs.\n  const raw = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (raw.length > maxBodyBytes) return reply(413, 'body_too_large');\n  const expected = createHmac('sha256', secret).update(raw).digest();\n  if (!timingSafeEqual(expected, Buffer.from(signature, 'hex'))) {\n    return reply(401, 'invalid_signature');\n  }\n  if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(headers['content-type'] ?? '') ||\n      (headers['content-encoding'] && headers['content-encoding'] !== 'identity')) {\n    return reply(415, 'unsupported_media_type');\n  }\n\n  let event;\n  try {\n    const text = raw.toString('utf8');\n    if (!Buffer.from(text, 'utf8').equals(raw)) return reply(400, 'invalid_json');\n    event = JSON.parse(text);\n  } catch {\n    return reply(400, 'invalid_json');\n  }\n  if (!event || typeof event !== 'object' || Array.isArray(event)) return reply(400, 'invalid_json');\n\n  if (abilio) {\n    const { ticket_reference, event_id } = event;\n    if (event.event_type !== ticketCreated || typeof ticket_reference !== 'string' ||\n        !/^TKT-[A-Z0-9][A-Z0-9-]{0,59}$/.test(ticket_reference) ||\n        event_id !== `${ticketCreated}:${ticket_reference}`) {\n      return reply(422, 'invalid_event');\n    }\n    return { event: { event_type: ticketCreated, event_id, ticket_reference } };\n  }\n\n  const ignored = reply(200, 'ignored');\n  if (event.version !== 'v2' || event.event !== commentCreated ||\n      event.entity_type !== 'issue' || !uuid(event.event_id) || !uuid(event.workspace_id)) {\n    return ignored;\n  }\n  const { id: issueId, project_id: eventProjectId, comment } = event.data ?? {};\n  if (!uuid(issueId) || event.entity_id !== issueId || comment?.issue_id !== issueId ||\n      !uuid(comment.id) || !uuid(comment.actor_id) || comment.edited_at != null ||\n      integrationMarker(comment.external_source) || integrationMarker(comment.external_id)) {\n    return ignored;\n  }\n  const match = typeof comment.comment_stripped === 'string' && closeCommand.exec(comment.comment_stripped);\n  if (!match || match[0] !== comment.comment_stripped) return ignored;\n\n  const projectId = $env.HERMES_BRIDGE_PLANE_PROJECT_ID;\n  const operators = ($env.HERMES_BRIDGE_PLANE_OPERATOR_IDS ?? '').split(',').map((id) => id.trim());\n  if (!uuid(projectId) || !operators.every(uuid)) return reply(503, 'bridge_unconfigured');\n  if (!operators.includes(comment.actor_id) ||\n      (eventProjectId !== undefined && eventProjectId !== projectId)) return ignored;\n\n  const planeUrl = $env.HERMES_BRIDGE_PLANE_URL;\n  const workspace = $env.HERMES_BRIDGE_PLANE_WORKSPACE;\n  if (!/^https:\\/\\/[a-z0-9.-]+(?::[0-9]+)?\\/?$/i.test(planeUrl ?? '') ||\n      !/^[a-z0-9_-]+$/i.test(workspace ?? '') || !$env.HERMES_BRIDGE_PLANE_API_KEY) {\n    return reply(503, 'bridge_unconfigured');\n  }\n  const issueUrl = `${planeUrl.replace(/\\/$/, '')}/api/v1/workspaces/${workspace}/projects/${projectId}/work-items/${issueId}/`;\n  return {\n    issueUrl,\n    issueId,\n    projectId,\n    workspaceId: event.workspace_id,\n    commentId: comment.id,\n    actorId: comment.actor_id,\n    confirmedVersion: match[1],\n  };\n}\n\nreturn [{ json: await receive.call(this) }];\n"
+      }
+    },
+    {
+      "id": "hermes-plane-eligible-command-",
+      "name": "Eligible command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue",
+              "leftValue": "={{ $json.status === undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hermes-plane-read-plane-comment-metadata",
+      "name": "Read Plane comment metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.issueUrl + \"comments/\" + $json.commentId + \"/\" }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,issue,project,workspace,actor,created_by,edited_at,external_source,external_id"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.HERMES_BRIDGE_PLANE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "hermes-plane-confirm-human-comment",
+      "name": "Confirm human comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const { statusCode, body } = $input.first().json;\nconst candidate = $('Verify and filter').first().json;\nconst ignored = { status: 200, result: 'ignored' };\nconst unavailable = { status: 502, result: 'plane_unavailable' };\nconst blank = (value) => value === null || value === '';\n\nfunction confirmComment() {\n  if (statusCode === 404) return ignored;\n  if (statusCode !== 200 || !body || !Object.hasOwn(body, 'edited_at') ||\n      !Object.hasOwn(body, 'external_source') || !Object.hasOwn(body, 'external_id')) {\n    return unavailable;\n  }\n  if (body.id !== candidate.commentId || body.issue !== candidate.issueId ||\n      body.project !== candidate.projectId || body.workspace !== candidate.workspaceId ||\n      body.actor !== candidate.actorId || body.created_by !== candidate.actorId ||\n      body.edited_at !== null || !blank(body.external_source) || !blank(body.external_id)) {\n    return ignored;\n  }\n  return { issueUrl: candidate.issueUrl };\n}\n\nreturn [{ json: confirmComment() }];\n"
+      }
+    },
+    {
+      "id": "hermes-plane-fresh-human-comment-",
+      "name": "Fresh human comment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue",
+              "leftValue": "={{ $json.status === undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hermes-plane-read-dev-issue",
+      "name": "Read DEV issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.issueUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,name,project,workspace,external_source"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.HERMES_BRIDGE_PLANE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "hermes-plane-sign-hermes-delivery",
+      "name": "Sign Hermes delivery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const source = \"plane\";\nconst { createHmac } = require('crypto');\nconst input = $input.first().json;\nconst reply = (status, result) => ({ status, result });\nconst closeRequested = 'plane.abilio.close_requested';\n// The Abílio synchronizer stores the database ID in external_id and prefixes\n// the title with ticket_uid. The exact fallback title is \"Ticket #<ticket_uid>\".\nconst abilioTitle = /^(?:(TKT-[A-Z0-9][A-Z0-9-]{0,59}): |Ticket #(TKT-[A-Z0-9][A-Z0-9-]{0,59})$)/;\n\nfunction signDelivery() {\n  let event = input.event;\n  if (source === 'plane') {\n    const { statusCode, body: issue } = input;\n    if (statusCode === 404) return reply(200, 'ignored');\n    if (statusCode !== 200 || !issue || !Object.hasOwn(issue, 'external_source')) {\n      return reply(502, 'plane_unavailable');\n    }\n\n    const candidate = $('Verify and filter').first().json;\n    const reference = typeof issue.name === 'string' && abilioTitle.exec(issue.name);\n    if (issue.id !== candidate.issueId || issue.project !== candidate.projectId ||\n        issue.workspace !== candidate.workspaceId || issue.external_source !== 'abilio' || !reference) {\n      return reply(200, 'ignored');\n    }\n    event = {\n      event_type: closeRequested,\n      event_id: `${closeRequested}:${candidate.commentId}`,\n      ticket_reference: reference[1] ?? reference[2],\n      plane_issue_id: issue.id,\n      ...(candidate.confirmedVersion ? { confirmed_version: candidate.confirmedVersion } : {}),\n    };\n  }\n\n  const url = $env.HERMES_BRIDGE_OUTBOUND_URL;\n  const secret = $env.HERMES_BRIDGE_OUTBOUND_SECRET;\n  if (!/^https?:\\/\\//i.test(url ?? '') || !secret) return reply(503, 'bridge_unconfigured');\n\n  const body = JSON.stringify(event);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = createHmac('sha256', secret).update(timestamp + '.').update(body, 'utf8').digest('hex');\n  return { url, body, timestamp, signature, requestId: event.event_id };\n}\n\nreturn [{ json: signDelivery() }];\n"
+      }
+    },
+    {
+      "id": "hermes-plane-delivery-ready-",
+      "name": "Delivery ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue",
+              "leftValue": "={{ $json.status === undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "hermes-plane-deliver-to-hermes",
+      "name": "Deliver to Hermes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "X-Webhook-Signature-V2",
+              "value": "={{ $json.signature }}"
+            },
+            {
+              "name": "X-Request-ID",
+              "value": "={{ $json.requestId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 3500,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "autodetect"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "hermes-plane-respond-to-sender",
+      "name": "Respond to sender",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2200,
+        220
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $json.result ?? ({ 200: \"duplicate\", 202: \"accepted\" })[$json.statusCode] ?? \"hermes_unavailable\" }) }}",
+        "options": {
+          "responseCode": "={{ $json.status ?? ([200, 202].includes($json.statusCode) ? $json.statusCode : 502) }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify and filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify and filter": {
+      "main": [
+        [
+          {
+            "node": "Eligible command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eligible command?": {
+      "main": [
+        [
+          {
+            "node": "Read Plane comment metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Plane comment metadata": {
+      "main": [
+        [
+          {
+            "node": "Confirm human comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm human comment": {
+      "main": [
+        [
+          {
+            "node": "Fresh human comment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fresh human comment?": {
+      "main": [
+        [
+          {
+            "node": "Read DEV issue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read DEV issue": {
+      "main": [
+        [
+          {
+            "node": "Sign Hermes delivery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Hermes delivery": {
+      "main": [
+        [
+          {
+            "node": "Delivery ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delivery ready?": {
+      "main": [
+        [
+          {
+            "node": "Deliver to Hermes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver to Hermes": {
+      "main": [
+        [
+          {
+            "node": "Respond to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  }
+}
