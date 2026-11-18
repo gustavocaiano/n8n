@@ -1,0 +1,60 @@
+{
+  "abilio": {
+    "event": {
+      "event_type": "abilio.ticket.created",
+      "event_id": "abilio.ticket.created:TKT-261118-AB12CD",
+      "ticket_reference": "TKT-261118-AB12CD"
+    }
+  },
+  "plane": {
+    "workspace": "test-workspace",
+    "event": {
+      "version": "v2",
+      "delivery_id": "a130a0ba-166b-4d00-bcd2-33bc387745a3",
+      "event_id": "bb76d675-b6bc-4ae4-b591-a827974da34b",
+      "entity_id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+      "entity_type": "issue",
+      "event": "workitem.comment.created",
+      "webhook_id": "4fd2b3d1-e7e8-465d-8fd3-fd65e20e0c94",
+      "workspace_id": "6152eb5b-6bf9-40c4-892f-5a417f088372",
+      "data": {
+        "id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+        "name": "TKT-261118-DECOY: title in event",
+        "comment": {
+          "id": "41059bd6-947e-4001-a030-f1bbcf784ccd",
+          "access": "INTERNAL",
+          "actor_id": "99f46529-289b-46e3-89c7-021e8af3b217",
+          "issue_id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+          "edited_at": null,
+          "comment_stripped": "@hermes fecha no Abílio — disponível na v1.2.3"
+        }
+      },
+      "previous_attributes": {}
+    },
+    "comment": {
+      "id": "41059bd6-947e-4001-a030-f1bbcf784ccd",
+      "issue": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+      "project": "c343aa81-981c-446f-9aaf-b7318c174957",
+      "workspace": "6152eb5b-6bf9-40c4-892f-5a417f088372",
+      "actor": "99f46529-289b-46e3-89c7-021e8af3b217",
+      "created_by": "99f46529-289b-46e3-89c7-021e8af3b217",
+      "edited_at": null,
+      "external_id": null,
+      "external_source": null
+    },
+    "issue": {
+      "id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+      "project": "c343aa81-981c-446f-9aaf-b7318c174957",
+      "workspace": "6152eb5b-6bf9-40c4-892f-5a417f088372",
+      "name": "TKT-261118-AB12CD: synthetic ticket",
+      "external_source": "abilio"
+    },
+    "expected": {
+      "event_type": "plane.abilio.close_requested",
+      "event_id": "plane.abilio.close_requested:41059bd6-947e-4001-a030-f1bbcf784ccd",
+      "ticket_reference": "TKT-261118-AB12CD",
+      "plane_issue_id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+      "confirmed_version": "v1.2.3"
+    }
+  }
+}
