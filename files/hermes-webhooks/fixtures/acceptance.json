@@ -56,5 +56,43 @@
       "plane_issue_id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
       "confirmed_version": "v1.2.3"
     }
+  },
+  "planeState": {
+    "event": {
+      "version": "v2",
+      "delivery_id": "940f35bb-a844-46d1-9c2f-b7d44e5d0f20",
+      "event_id": "aae44a88-8723-484b-b8c7-5a1524fb7319",
+      "entity_id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+      "entity_type": "issue",
+      "event": "workitem.updated",
+      "webhook_id": "4fd2b3d1-e7e8-465d-8fd3-fd65e20e0c94",
+      "workspace_id": "6152eb5b-6bf9-40c4-892f-5a417f088372",
+      "data": {
+        "id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb",
+        "project_id": "c343aa81-981c-446f-9aaf-b7318c174957",
+        "workspace_id": "6152eb5b-6bf9-40c4-892f-5a417f088372",
+        "state_id": "70d2b6dc-cb41-43a0-bf3d-dfb29dba578c",
+        "completed_at": "2026-11-18T10:15:00.023427+00:00",
+        "updated_at": "2026-11-18T10:15:00.026381+00:00",
+        "updated_by_id": "99f46529-289b-46e3-89c7-021e8af3b217",
+        "external_source": "abilio",
+        "name": "TKT-261118-DECOY: title in event"
+      },
+      "previous_attributes": {
+        "state_id": "fb4c97df-cdc1-4449-8997-833df864d314",
+        "completed_at": null
+      }
+    },
+    "state": {
+      "id": "70d2b6dc-cb41-43a0-bf3d-dfb29dba578c",
+      "name": "Fechar no Abílio",
+      "group": "completed"
+    },
+    "expected": {
+      "event_type": "plane.abilio.close_requested",
+      "event_id": "plane.abilio.close_requested:state:aae44a88-8723-484b-b8c7-5a1524fb7319",
+      "ticket_reference": "TKT-261118-AB12CD",
+      "plane_issue_id": "4295213b-3ccb-4d56-b047-64fe3a2d77bb"
+    }
   }
 }

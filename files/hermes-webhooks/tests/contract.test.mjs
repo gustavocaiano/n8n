@@ -24,6 +24,7 @@ const env = {
 const verify = 'Verify and filter';
 const sign = 'Sign Hermes delivery';
 const ignored = { status: 200, result: 'ignored' };
+const ignoredState = (reason) => ({ ...ignored, reason });
 const require = createRequire(import.meta.url);
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const hmac = (key, bytes) => createHmac('sha256', key).update(bytes).digest('hex');
@@ -68,6 +69,13 @@ function readComment(candidate, body = fixture.plane.comment, statusCode = 200) 
 
 function readIssue(candidate, body = fixture.plane.issue, statusCode = 200) {
   return run('plane', sign, { json: { statusCode, body } }, { candidate });
+}
+
+function receiveState(event = fixture.planeState.event, options = {}) {
+  return receive('plane', event, {
+    ...options,
+    env: { HERMES_BRIDGE_PLANE_CLOSING_STATE_IDS: fixture.planeState.state.id, ...options.env },
+  });
 }
 
 function verifyDelivery(delivery, expected) {
@@ -144,12 +152,11 @@ test('Plane resolves the canonical issue and preserves the same request ID acros
   verifyDelivery(await readIssue(noVersion, { ...fixture.plane.issue, name: `Ticket #${expected.ticket_reference}` }), expected);
 });
 
-test('Plane ignores legacy, updates, other projects, other actors and non-command comments', async () => {
+test('Plane ignores legacy, comment updates, other projects, other actors and non-command comments', async () => {
   const event = fixture.plane.event;
   for (const override of [
     { version: undefined, event: 'issue_comment', action: 'created' },
     { event: 'workitem.comment.updated' },
-    { event: 'workitem.updated', data: { ...event.data, state: 'Done' } },
     { entity_id: randomUUID() },
     { data: { ...event.data, project_id: randomUUID() } },
   ]) {
@@ -197,6 +204,84 @@ test('Plane rereads provenance and edit state before using the issue or deliveri
   assert.deepEqual(await readIssue(candidate, {}, 503), { status: 502, result: 'plane_unavailable' });
 });
 
+test('Plane state transitions require a configured destination, a signed change and an approved event actor', async () => {
+  const { event, state } = fixture.planeState;
+  assert.deepEqual(await receive('plane', event), ignoredState('state_transition_disabled'));
+  assert.deepEqual(await receiveState(event, {
+    env: { HERMES_BRIDGE_PLANE_CLOSING_STATE_IDS: `${state.id}, Done` },
+  }), ignoredState('state_transition_unconfigured'));
+  const done = randomUUID();
+  for (const [override, reason] of [
+    [{ version: 'v1' }, 'state_transition_not_proven'],
+    [{ previous_attributes: { name: 'Before edit' } }, 'state_transition_not_proven'],
+    [{ previous_attributes: { ...event.previous_attributes, state_id: state.id } }, 'state_transition_not_proven'],
+    [{ previous_attributes: { state_id: event.previous_attributes.state_id } }, 'state_actor_not_proven'],
+    [{ data: { ...event.data, updated_by_id: null, actor_id: fixture.plane.comment.actor } }, 'state_actor_not_proven'],
+    [{ data: { ...event.data, completed_at: null } }, 'state_actor_not_proven'],
+    [{ data: { ...event.data, updated_at: event.data.completed_at } }, 'state_actor_not_proven'],
+    [{ data: { ...event.data, updated_at: undefined } }, 'state_actor_not_proven'],
+    [{ data: { ...event.data, updated_by_id: randomUUID() } }, 'state_actor_not_allowed'],
+    [{ data: { ...event.data, state_id: done } }, 'state_not_allowed'],
+    [{ data: { ...event.data, external_source: 'gitlab' } }, 'state_issue_out_of_scope'],
+    [{ data: { ...event.data, project_id: randomUUID() } }, 'state_issue_out_of_scope'],
+    [{ data: { ...event.data, workspace_id: randomUUID() } }, 'state_issue_out_of_scope'],
+    [{ entity_id: randomUUID() }, 'state_transition_not_proven'],
+  ]) {
+    assert.deepEqual(await receiveState({ ...event, ...override }), ignoredState(reason));
+  }
+  assert.deepEqual(await receiveState(event, { signedBytes: Buffer.from('changed after signing') }), {
+    status: 401, result: 'invalid_signature',
+  });
+});
+
+test('Plane checks the current v1 issue and sends a versionless event keyed by the v2 event ID', async () => {
+  const { event, state, expected } = fixture.planeState;
+  const issue = { ...fixture.plane.issue, state, completed_at: '2026-11-18T10:15:00.023427Z' };
+  const candidate = await receiveState(event, {
+    env: { HERMES_BRIDGE_PLANE_CLOSING_STATE_IDS: `${randomUUID()}, ${state.id}` },
+  });
+  assert.equal(candidate.issueUrl, `${(await receive('plane')).issueUrl}?expand=state`);
+  assert.equal(candidate.commentId, undefined);
+  verifyDelivery(await readIssue(candidate, issue), expected);
+  const replay = await receiveState({ ...event, delivery_id: randomUUID() });
+  verifyDelivery(await readIssue(replay, issue), expected);
+  assert.deepEqual(await readIssue(replay, { ...issue, completed_at: '2026-11-18T10:15:00.023428Z' }),
+    ignoredState('state_no_longer_eligible'));
+  assert.deepEqual(await readIssue(replay, { ...issue, completed_at: undefined }),
+    ignoredState('state_no_longer_eligible'));
+  const newEventId = randomUUID();
+  const newEvent = await receiveState({ ...event, event_id: newEventId });
+  verifyDelivery(await readIssue(newEvent, issue), {
+    ...expected, event_id: `plane.abilio.close_requested:state:${newEventId}`,
+  });
+
+  for (const changedState of [
+    { ...state, id: event.previous_attributes.state_id },
+    { ...state, name: 'Done' },
+    { ...state, group: 'started' },
+    state.id,
+  ]) {
+    assert.deepEqual(await readIssue(candidate, { ...issue, state: changedState }), ignoredState('state_no_longer_eligible'));
+  }
+  for (const override of [
+    { id: randomUUID() }, { project: randomUUID() }, { workspace: randomUUID() },
+    { external_source: 'gitlab' }, { name: 'Title without a ticket reference' },
+  ]) {
+    assert.deepEqual(await readIssue(candidate, { ...issue, ...override }), ignored);
+  }
+  assert.deepEqual(await readIssue(candidate, {
+    id: issue.id, project_id: issue.project, state_id: state.id, name: issue.name,
+  }), { status: 502, result: 'plane_unavailable' });
+});
+
+test('only state candidates bypass the Plane comment metadata read', () => {
+  const { connections } = workflows.plane;
+  assert.equal(connections['Eligible command?'].main[0][0].node, 'Comment command?');
+  assert.deepEqual(connections['Comment command?'].main.map((output) => output.map(({ node }) => node)), [
+    ['Read Plane comment metadata'], ['Read DEV issue'],
+  ]);
+});
+
 test('exports keep both Webhooks inactive with binary POSTs and execution history off', () => {
   for (const [source, path] of [
     ['abilio', 'hermes/abilio-ticket-created'],
@@ -222,5 +307,14 @@ test('exports keep both Webhooks inactive with binary POSTs and execution histor
     assert.equal(delivery.parameters.options.response.response.responseFormat, 'autodetect');
     assert.equal(delivery.parameters.options.redirect.redirect.followRedirects, false);
     assert.equal(delivery.retryOnFail, false);
+    assert.equal(workflow.pinData, undefined);
+    assert.equal(workflow.activeVersionId, undefined);
+    assert.doesNotMatch(JSON.stringify(workflow), /fixture-|plane_wh_|plane_api_|api\.example\.invalid/);
+    const authenticatedRequests = workflow.nodes.filter((entry) => entry.type === 'n8n-nodes-base.httpRequest');
+    for (const request of authenticatedRequests) {
+      assert.equal(request.credentials, undefined);
+      assert.ok(request.parameters.headerParameters.parameters.every(({ value }) =>
+        value === 'application/json' || value.startsWith('={{ ')));
+    }
   }
 });

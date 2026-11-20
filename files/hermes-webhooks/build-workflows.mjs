@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const code = (file) => readFileSync(new URL(file, import.meta.url), 'utf8');
 const ingress = [
   { source: 'abilio', name: 'Abílio ticket created → Hermes', path: 'hermes/abilio-ticket-created' },
-  { source: 'plane', name: 'Plane comment created → Hermes', path: 'hermes/plane-comment-created' },
+  { source: 'plane', name: 'Plane close requests → Hermes', path: 'hermes/plane-comment-created' },
 ];
 const verify = 'Verify and filter';
 const sign = 'Sign Hermes delivery';
@@ -25,14 +25,19 @@ function build({ source, name, path }) {
   function js(name, jsCode, x) {
     node(name, 'code', 2, { jsCode }, [x, 0]);
   }
-  const forSource = (file) => `const source = ${JSON.stringify(source)};\n` + code(file);
-  function route(from, name, to, x) {
+  function forSource(file) {
+    // Keep the Abílio export byte-for-byte while adding Plane-specific Code node logic.
+    const body = code(file).replace(/^ *\/\/ @plane-only\n([\s\S]*?)^ *\/\/ @end-plane-only\n/gm,
+      (_, planeCode) => source === 'plane' ? planeCode : '');
+    return `const source = ${JSON.stringify(source)};\n` + body;
+  }
+  function branch(name, condition, x) {
     node(name, 'if', 2.2, {
       conditions: {
         options: { caseSensitive: true, leftValue: '', typeValidation: 'strict' },
         conditions: [{
           id: 'continue',
-          leftValue: '={{ $json.status === undefined }}',
+          leftValue: condition,
           rightValue: '',
           operator: { type: 'boolean', operation: 'true', singleValue: true },
         }],
@@ -40,6 +45,9 @@ function build({ source, name, path }) {
       },
       options: {},
     }, [x, 0]);
+  }
+  function route(from, name, to, x) {
+    branch(name, '={{ $json.status === undefined }}', x);
     edge(from, name);
     edge(name, to);
     edge(name, respond, 1);
@@ -83,15 +91,19 @@ function build({ source, name, path }) {
     const getComment = 'Read Plane comment metadata';
     const confirm = 'Confirm human comment';
     const getIssue = 'Read DEV issue';
-    route(verify, 'Eligible command?', getComment, 440);
+    const isComment = 'Comment command?';
+    route(verify, 'Eligible command?', isComment, 440);
+    branch(isComment, '={{ $json.commentId !== undefined }}', 660);
+    edge(isComment, getComment);
+    edge(isComment, getIssue, 1);
     planeGet(getComment, '={{ $json.issueUrl + "comments/" + $json.commentId + "/" }}',
-      'id,issue,project,workspace,actor,created_by,edited_at,external_source,external_id', 660);
-    js(confirm, code('confirm-comment.js'), 880);
+      'id,issue,project,workspace,actor,created_by,edited_at,external_source,external_id', 880);
+    js(confirm, code('confirm-comment.js'), 1100);
     edge(getComment, confirm);
-    route(confirm, 'Fresh human comment?', getIssue, 1100);
-    planeGet(getIssue, '={{ $json.issueUrl }}', 'id,name,project,workspace,external_source', 1320);
+    route(confirm, 'Fresh human comment?', getIssue, 1320);
+    planeGet(getIssue, '={{ $json.issueUrl }}', 'id,name,project,workspace,external_source,state,completed_at', 1540);
     edge(getIssue, sign);
-    signX = 1540;
+    signX = 1760;
   } else {
     route(verify, 'Valid ticket event?', sign, 440);
   }
@@ -113,9 +125,11 @@ function build({ source, name, path }) {
     { name: 'X-Request-ID', value: '={{ $json.requestId }}' },
   ], 'autodetect', signX + 440, 3500);
   edge(send, respond);
+  const responseStatus = '$json.result ?? ({ 200: "duplicate", 202: "accepted" })[$json.statusCode] ?? "hermes_unavailable"';
+  const ignoredReason = source === 'plane' ? ', ...($json.reason ? { reason: $json.reason } : {})' : '';
   node(respond, 'respondToWebhook', 1.5, {
     respondWith: 'json',
-    responseBody: '={{ JSON.stringify({ status: $json.result ?? ({ 200: "duplicate", 202: "accepted" })[$json.statusCode] ?? "hermes_unavailable" }) }}',
+    responseBody: `={{ JSON.stringify({ status: ${responseStatus}${ignoredReason} }) }}`,
     options: {
       responseCode: '={{ $json.status ?? ([200, 202].includes($json.statusCode) ? $json.statusCode : 502) }}',
       responseHeaders: { entries: [{ name: 'Cache-Control', value: 'no-store' }] },

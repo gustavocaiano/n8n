@@ -6,6 +6,17 @@ const closeRequested = 'plane.abilio.close_requested';
 // the title with ticket_uid. The exact fallback title is "Ticket #<ticket_uid>".
 const abilioTitle = /^(?:(TKT-[A-Z0-9][A-Z0-9-]{0,59}): |Ticket #(TKT-[A-Z0-9][A-Z0-9-]{0,59})$)/;
 
+// @plane-only
+function completionKey(value) {
+  if (typeof value !== 'string') return null;
+  const millis = Date.parse(value);
+  if (!Number.isFinite(millis)) return null;
+  // Normalize the timezone while keeping the precision shared by PostgreSQL and DRF.
+  const fraction = value.match(/\.(\d{1,6})(?:Z|[+-]\d{2}:\d{2})$/)?.[1] ?? '';
+  return `${millis}:${fraction.padEnd(6, '0')}`;
+}
+
+// @end-plane-only
 function signDelivery() {
   let event = input.event;
   if (source === 'plane') {
@@ -21,6 +32,13 @@ function signDelivery() {
         issue.workspace !== candidate.workspaceId || issue.external_source !== 'abilio' || !reference) {
       return reply(200, 'ignored');
     }
+    // @plane-only
+    if (candidate.stateEventId && (issue.state?.id !== candidate.stateId ||
+        issue.state.name !== 'Fechar no Abílio' || issue.state.group !== 'completed' ||
+        completionKey(issue.completed_at) !== completionKey(candidate.completedAt))) {
+      return { ...reply(200, 'ignored'), reason: 'state_no_longer_eligible' };
+    }
+    // @end-plane-only
     event = {
       event_type: closeRequested,
       event_id: `${closeRequested}:${candidate.commentId}`,
@@ -28,6 +46,9 @@ function signDelivery() {
       plane_issue_id: issue.id,
       ...(candidate.confirmedVersion ? { confirmed_version: candidate.confirmedVersion } : {}),
     };
+    // @plane-only
+    if (candidate.stateEventId) event.event_id = `${closeRequested}:state:${candidate.stateEventId}`;
+    // @end-plane-only
   }
 
   const url = $env.HERMES_BRIDGE_OUTBOUND_URL;
