@@ -1,5 +1,5 @@
 {
-  "name": "Plane comment created → Hermes",
+  "name": "Plane close requests → Hermes",
   "nodes": [
     {
       "id": "hermes-plane-webhook",
@@ -32,7 +32,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const source = \"plane\";\nconst { createHmac, timingSafeEqual } = require('crypto');\nconst reply = (status, result) => ({ status, result });\nconst uuid = (value) => typeof value === 'string' &&\n  /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value);\nconst integrationMarker = (value) => value != null && value !== '';\nconst maxBodyBytes = 1024 * 1024;\nconst ticketCreated = 'abilio.ticket.created';\nconst commentCreated = 'workitem.comment.created';\nconst closeCommand = /^@hermes fecha no Abílio(?: — disponível na (v?[0-9]{1,4}(?:\\.[0-9]{1,4}){0,2}))?$/u;\n\nasync function receive() {\n  const abilio = source === 'abilio';\n  const secret = abilio ? $env.HERMES_BRIDGE_ABILIO_WEBHOOK_SECRET : $env.HERMES_BRIDGE_PLANE_WEBHOOK_SECRET;\n  if (!secret) return reply(503, 'bridge_unconfigured');\n\n  const input = $input.first();\n  const headers = input.json.headers ?? {};\n  const signature = headers[abilio ? 'x-abilio-ticket-signature' : 'x-plane-signature'];\n  if (typeof signature !== 'string' || !/^[0-9a-f]{64}$/i.test(signature)) {\n    return reply(401, 'invalid_signature');\n  }\n  const binary = input.binary?.data;\n  if (!binary) return reply(400, 'missing_body');\n  if (!Number.isSafeInteger(binary.bytes) || binary.bytes < 1 || binary.bytes > maxBodyBytes) {\n    return reply(413, 'body_too_large');\n  }\n\n  // The Webhook node streams the body as binary before n8n's JSON parser runs.\n  const raw = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (raw.length > maxBodyBytes) return reply(413, 'body_too_large');\n  const expected = createHmac('sha256', secret).update(raw).digest();\n  if (!timingSafeEqual(expected, Buffer.from(signature, 'hex'))) {\n    return reply(401, 'invalid_signature');\n  }\n  if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(headers['content-type'] ?? '') ||\n      (headers['content-encoding'] && headers['content-encoding'] !== 'identity')) {\n    return reply(415, 'unsupported_media_type');\n  }\n\n  let event;\n  try {\n    const text = raw.toString('utf8');\n    if (!Buffer.from(text, 'utf8').equals(raw)) return reply(400, 'invalid_json');\n    event = JSON.parse(text);\n  } catch {\n    return reply(400, 'invalid_json');\n  }\n  if (!event || typeof event !== 'object' || Array.isArray(event)) return reply(400, 'invalid_json');\n\n  if (abilio) {\n    const { ticket_reference, event_id } = event;\n    if (event.event_type !== ticketCreated || typeof ticket_reference !== 'string' ||\n        !/^TKT-[A-Z0-9][A-Z0-9-]{0,59}$/.test(ticket_reference) ||\n        event_id !== `${ticketCreated}:${ticket_reference}`) {\n      return reply(422, 'invalid_event');\n    }\n    return { event: { event_type: ticketCreated, event_id, ticket_reference } };\n  }\n\n  const ignored = reply(200, 'ignored');\n  if (event.version !== 'v2' || event.event !== commentCreated ||\n      event.entity_type !== 'issue' || !uuid(event.event_id) || !uuid(event.workspace_id)) {\n    return ignored;\n  }\n  const { id: issueId, project_id: eventProjectId, comment } = event.data ?? {};\n  if (!uuid(issueId) || event.entity_id !== issueId || comment?.issue_id !== issueId ||\n      !uuid(comment.id) || !uuid(comment.actor_id) || comment.edited_at != null ||\n      integrationMarker(comment.external_source) || integrationMarker(comment.external_id)) {\n    return ignored;\n  }\n  const match = typeof comment.comment_stripped === 'string' && closeCommand.exec(comment.comment_stripped);\n  if (!match || match[0] !== comment.comment_stripped) return ignored;\n\n  const projectId = $env.HERMES_BRIDGE_PLANE_PROJECT_ID;\n  const operators = ($env.HERMES_BRIDGE_PLANE_OPERATOR_IDS ?? '').split(',').map((id) => id.trim());\n  if (!uuid(projectId) || !operators.every(uuid)) return reply(503, 'bridge_unconfigured');\n  if (!operators.includes(comment.actor_id) ||\n      (eventProjectId !== undefined && eventProjectId !== projectId)) return ignored;\n\n  const planeUrl = $env.HERMES_BRIDGE_PLANE_URL;\n  const workspace = $env.HERMES_BRIDGE_PLANE_WORKSPACE;\n  if (!/^https:\\/\\/[a-z0-9.-]+(?::[0-9]+)?\\/?$/i.test(planeUrl ?? '') ||\n      !/^[a-z0-9_-]+$/i.test(workspace ?? '') || !$env.HERMES_BRIDGE_PLANE_API_KEY) {\n    return reply(503, 'bridge_unconfigured');\n  }\n  const issueUrl = `${planeUrl.replace(/\\/$/, '')}/api/v1/workspaces/${workspace}/projects/${projectId}/work-items/${issueId}/`;\n  return {\n    issueUrl,\n    issueId,\n    projectId,\n    workspaceId: event.workspace_id,\n    commentId: comment.id,\n    actorId: comment.actor_id,\n    confirmedVersion: match[1],\n  };\n}\n\nreturn [{ json: await receive.call(this) }];\n"
+        "jsCode": "const source = \"plane\";\nconst { createHmac, timingSafeEqual } = require('crypto');\nconst reply = (status, result) => ({ status, result });\nconst uuid = (value) => typeof value === 'string' &&\n  /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value);\nconst integrationMarker = (value) => value != null && value !== '';\nconst maxBodyBytes = 1024 * 1024;\nconst ticketCreated = 'abilio.ticket.created';\nconst commentCreated = 'workitem.comment.created';\nconst closeCommand = /^@hermes fecha no Abílio(?: — disponível na (v?[0-9]{1,4}(?:\\.[0-9]{1,4}){0,2}))?$/u;\n\nfunction receiveStateTransition(event) {\n  const ignore = (reason) => ({ ...reply(200, 'ignored'), reason });\n  const closingStates = ($env.HERMES_BRIDGE_PLANE_CLOSING_STATE_IDS ?? '').trim();\n  if (!closingStates) return ignore('state_transition_disabled');\n  const closingIds = closingStates.split(',').map((id) => id.trim());\n  if (!closingIds.every(uuid)) return ignore('state_transition_unconfigured');\n\n  const {\n    id: issueId, state_id: stateId, updated_by_id: actorId, completed_at: completedAt, updated_at: updatedAt,\n  } = event.data ?? {};\n  const previousStateId = event.previous_attributes?.state_id;\n  if (event.version !== 'v2' || event.entity_type !== 'issue' || !uuid(event.event_id) ||\n      !uuid(event.workspace_id) || !uuid(issueId) || event.entity_id !== issueId ||\n      !uuid(stateId) || !uuid(previousStateId) || previousStateId === stateId) {\n    return ignore('state_transition_not_proven');\n  }\n  if (!closingIds.includes(stateId)) return ignore('state_not_allowed');\n  // In Plane 3.3.3, state-only transfers omit the completion diff. Governance\n  // fallback stamps both timestamps with the same value and preserves the previous updater.\n  if (!uuid(actorId) || !Object.hasOwn(event.previous_attributes, 'completed_at') ||\n      typeof completedAt !== 'string' || !Number.isFinite(Date.parse(completedAt)) ||\n      typeof updatedAt !== 'string' || !Number.isFinite(Date.parse(updatedAt)) || updatedAt === completedAt) {\n    return ignore('state_actor_not_proven');\n  }\n\n  const projectId = $env.HERMES_BRIDGE_PLANE_PROJECT_ID;\n  const operators = ($env.HERMES_BRIDGE_PLANE_OPERATOR_IDS ?? '').split(',').map((id) => id.trim());\n  if (!uuid(projectId) || !operators.every(uuid)) return reply(503, 'bridge_unconfigured');\n  if (!operators.includes(actorId)) return ignore('state_actor_not_allowed');\n  if (event.data.project_id !== projectId || event.data.workspace_id !== event.workspace_id ||\n      event.data.external_source !== 'abilio') return ignore('state_issue_out_of_scope');\n\n  const planeUrl = $env.HERMES_BRIDGE_PLANE_URL;\n  const workspace = $env.HERMES_BRIDGE_PLANE_WORKSPACE;\n  if (!/^https:\\/\\/[a-z0-9.-]+(?::[0-9]+)?\\/?$/i.test(planeUrl ?? '') ||\n      !/^[a-z0-9_-]+$/i.test(workspace ?? '') || !$env.HERMES_BRIDGE_PLANE_API_KEY) {\n    return reply(503, 'bridge_unconfigured');\n  }\n  const issueUrl = `${planeUrl.replace(/\\/$/, '')}/api/v1/workspaces/${workspace}/projects/${projectId}/work-items/${issueId}/`;\n  return {\n    issueUrl: `${issueUrl}?expand=state`,\n    issueId,\n    projectId,\n    workspaceId: event.workspace_id,\n    stateId,\n    completedAt,\n    stateEventId: event.event_id,\n  };\n}\n\nasync function receive() {\n  const abilio = source === 'abilio';\n  const secret = abilio ? $env.HERMES_BRIDGE_ABILIO_WEBHOOK_SECRET : $env.HERMES_BRIDGE_PLANE_WEBHOOK_SECRET;\n  if (!secret) return reply(503, 'bridge_unconfigured');\n\n  const input = $input.first();\n  const headers = input.json.headers ?? {};\n  const signature = headers[abilio ? 'x-abilio-ticket-signature' : 'x-plane-signature'];\n  if (typeof signature !== 'string' || !/^[0-9a-f]{64}$/i.test(signature)) {\n    return reply(401, 'invalid_signature');\n  }\n  const binary = input.binary?.data;\n  if (!binary) return reply(400, 'missing_body');\n  if (!Number.isSafeInteger(binary.bytes) || binary.bytes < 1 || binary.bytes > maxBodyBytes) {\n    return reply(413, 'body_too_large');\n  }\n\n  // The Webhook node streams the body as binary before n8n's JSON parser runs.\n  const raw = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (raw.length > maxBodyBytes) return reply(413, 'body_too_large');\n  const expected = createHmac('sha256', secret).update(raw).digest();\n  if (!timingSafeEqual(expected, Buffer.from(signature, 'hex'))) {\n    return reply(401, 'invalid_signature');\n  }\n  if (!/^application\\/json(?:\\s*;\\s*charset=utf-8)?$/i.test(headers['content-type'] ?? '') ||\n      (headers['content-encoding'] && headers['content-encoding'] !== 'identity')) {\n    return reply(415, 'unsupported_media_type');\n  }\n\n  let event;\n  try {\n    const text = raw.toString('utf8');\n    if (!Buffer.from(text, 'utf8').equals(raw)) return reply(400, 'invalid_json');\n    event = JSON.parse(text);\n  } catch {\n    return reply(400, 'invalid_json');\n  }\n  if (!event || typeof event !== 'object' || Array.isArray(event)) return reply(400, 'invalid_json');\n\n  if (abilio) {\n    const { ticket_reference, event_id } = event;\n    if (event.event_type !== ticketCreated || typeof ticket_reference !== 'string' ||\n        !/^TKT-[A-Z0-9][A-Z0-9-]{0,59}$/.test(ticket_reference) ||\n        event_id !== `${ticketCreated}:${ticket_reference}`) {\n      return reply(422, 'invalid_event');\n    }\n    return { event: { event_type: ticketCreated, event_id, ticket_reference } };\n  }\n\n  if (event.event === 'workitem.updated') return receiveStateTransition(event);\n\n  const ignored = reply(200, 'ignored');\n  if (event.version !== 'v2' || event.event !== commentCreated ||\n      event.entity_type !== 'issue' || !uuid(event.event_id) || !uuid(event.workspace_id)) {\n    return ignored;\n  }\n  const { id: issueId, project_id: eventProjectId, comment } = event.data ?? {};\n  if (!uuid(issueId) || event.entity_id !== issueId || comment?.issue_id !== issueId ||\n      !uuid(comment.id) || !uuid(comment.actor_id) || comment.edited_at != null ||\n      integrationMarker(comment.external_source) || integrationMarker(comment.external_id)) {\n    return ignored;\n  }\n  const match = typeof comment.comment_stripped === 'string' && closeCommand.exec(comment.comment_stripped);\n  if (!match || match[0] !== comment.comment_stripped) return ignored;\n\n  const projectId = $env.HERMES_BRIDGE_PLANE_PROJECT_ID;\n  const operators = ($env.HERMES_BRIDGE_PLANE_OPERATOR_IDS ?? '').split(',').map((id) => id.trim());\n  if (!uuid(projectId) || !operators.every(uuid)) return reply(503, 'bridge_unconfigured');\n  if (!operators.includes(comment.actor_id) ||\n      (eventProjectId !== undefined && eventProjectId !== projectId)) return ignored;\n\n  const planeUrl = $env.HERMES_BRIDGE_PLANE_URL;\n  const workspace = $env.HERMES_BRIDGE_PLANE_WORKSPACE;\n  if (!/^https:\\/\\/[a-z0-9.-]+(?::[0-9]+)?\\/?$/i.test(planeUrl ?? '') ||\n      !/^[a-z0-9_-]+$/i.test(workspace ?? '') || !$env.HERMES_BRIDGE_PLANE_API_KEY) {\n    return reply(503, 'bridge_unconfigured');\n  }\n  const issueUrl = `${planeUrl.replace(/\\/$/, '')}/api/v1/workspaces/${workspace}/projects/${projectId}/work-items/${issueId}/`;\n  return {\n    issueUrl,\n    issueId,\n    projectId,\n    workspaceId: event.workspace_id,\n    commentId: comment.id,\n    actorId: comment.actor_id,\n    confirmedVersion: match[1],\n  };\n}\n\nreturn [{ json: await receive.call(this) }];\n"
       }
     },
     {
@@ -69,12 +69,45 @@
       }
     },
     {
+      "id": "hermes-plane-comment-command-",
+      "name": "Comment command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "continue",
+              "leftValue": "={{ $json.commentId !== undefined }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
       "id": "hermes-plane-read-plane-comment-metadata",
       "name": "Read Plane comment metadata",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
+        880,
         0
       ],
       "parameters": {
@@ -127,7 +160,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
+        1100,
         0
       ],
       "parameters": {
@@ -140,7 +173,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1100,
+        1320,
         0
       ],
       "parameters": {
@@ -173,7 +206,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
+        1540,
         0
       ],
       "parameters": {
@@ -184,7 +217,7 @@
           "parameters": [
             {
               "name": "fields",
-              "value": "id,name,project,workspace,external_source"
+              "value": "id,name,project,workspace,external_source,state,completed_at"
             }
           ]
         },
@@ -226,11 +259,11 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
+        1760,
         0
       ],
       "parameters": {
-        "jsCode": "const source = \"plane\";\nconst { createHmac } = require('crypto');\nconst input = $input.first().json;\nconst reply = (status, result) => ({ status, result });\nconst closeRequested = 'plane.abilio.close_requested';\n// The Abílio synchronizer stores the database ID in external_id and prefixes\n// the title with ticket_uid. The exact fallback title is \"Ticket #<ticket_uid>\".\nconst abilioTitle = /^(?:(TKT-[A-Z0-9][A-Z0-9-]{0,59}): |Ticket #(TKT-[A-Z0-9][A-Z0-9-]{0,59})$)/;\n\nfunction signDelivery() {\n  let event = input.event;\n  if (source === 'plane') {\n    const { statusCode, body: issue } = input;\n    if (statusCode === 404) return reply(200, 'ignored');\n    if (statusCode !== 200 || !issue || !Object.hasOwn(issue, 'external_source')) {\n      return reply(502, 'plane_unavailable');\n    }\n\n    const candidate = $('Verify and filter').first().json;\n    const reference = typeof issue.name === 'string' && abilioTitle.exec(issue.name);\n    if (issue.id !== candidate.issueId || issue.project !== candidate.projectId ||\n        issue.workspace !== candidate.workspaceId || issue.external_source !== 'abilio' || !reference) {\n      return reply(200, 'ignored');\n    }\n    event = {\n      event_type: closeRequested,\n      event_id: `${closeRequested}:${candidate.commentId}`,\n      ticket_reference: reference[1] ?? reference[2],\n      plane_issue_id: issue.id,\n      ...(candidate.confirmedVersion ? { confirmed_version: candidate.confirmedVersion } : {}),\n    };\n  }\n\n  const url = $env.HERMES_BRIDGE_OUTBOUND_URL;\n  const secret = $env.HERMES_BRIDGE_OUTBOUND_SECRET;\n  if (!/^https?:\\/\\//i.test(url ?? '') || !secret) return reply(503, 'bridge_unconfigured');\n\n  const body = JSON.stringify(event);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = createHmac('sha256', secret).update(timestamp + '.').update(body, 'utf8').digest('hex');\n  return { url, body, timestamp, signature, requestId: event.event_id };\n}\n\nreturn [{ json: signDelivery() }];\n"
+        "jsCode": "const source = \"plane\";\nconst { createHmac } = require('crypto');\nconst input = $input.first().json;\nconst reply = (status, result) => ({ status, result });\nconst closeRequested = 'plane.abilio.close_requested';\n// The Abílio synchronizer stores the database ID in external_id and prefixes\n// the title with ticket_uid. The exact fallback title is \"Ticket #<ticket_uid>\".\nconst abilioTitle = /^(?:(TKT-[A-Z0-9][A-Z0-9-]{0,59}): |Ticket #(TKT-[A-Z0-9][A-Z0-9-]{0,59})$)/;\n\nfunction completionKey(value) {\n  if (typeof value !== 'string') return null;\n  const millis = Date.parse(value);\n  if (!Number.isFinite(millis)) return null;\n  // Normalize the timezone while keeping the precision shared by PostgreSQL and DRF.\n  const fraction = value.match(/\\.(\\d{1,6})(?:Z|[+-]\\d{2}:\\d{2})$/)?.[1] ?? '';\n  return `${millis}:${fraction.padEnd(6, '0')}`;\n}\n\nfunction signDelivery() {\n  let event = input.event;\n  if (source === 'plane') {\n    const { statusCode, body: issue } = input;\n    if (statusCode === 404) return reply(200, 'ignored');\n    if (statusCode !== 200 || !issue || !Object.hasOwn(issue, 'external_source')) {\n      return reply(502, 'plane_unavailable');\n    }\n\n    const candidate = $('Verify and filter').first().json;\n    const reference = typeof issue.name === 'string' && abilioTitle.exec(issue.name);\n    if (issue.id !== candidate.issueId || issue.project !== candidate.projectId ||\n        issue.workspace !== candidate.workspaceId || issue.external_source !== 'abilio' || !reference) {\n      return reply(200, 'ignored');\n    }\n    if (candidate.stateEventId && (issue.state?.id !== candidate.stateId ||\n        issue.state.name !== 'Fechar no Abílio' || issue.state.group !== 'completed' ||\n        completionKey(issue.completed_at) !== completionKey(candidate.completedAt))) {\n      return { ...reply(200, 'ignored'), reason: 'state_no_longer_eligible' };\n    }\n    event = {\n      event_type: closeRequested,\n      event_id: `${closeRequested}:${candidate.commentId}`,\n      ticket_reference: reference[1] ?? reference[2],\n      plane_issue_id: issue.id,\n      ...(candidate.confirmedVersion ? { confirmed_version: candidate.confirmedVersion } : {}),\n    };\n    if (candidate.stateEventId) event.event_id = `${closeRequested}:state:${candidate.stateEventId}`;\n  }\n\n  const url = $env.HERMES_BRIDGE_OUTBOUND_URL;\n  const secret = $env.HERMES_BRIDGE_OUTBOUND_SECRET;\n  if (!/^https?:\\/\\//i.test(url ?? '') || !secret) return reply(503, 'bridge_unconfigured');\n\n  const body = JSON.stringify(event);\n  const timestamp = String(Math.floor(Date.now() / 1000));\n  const signature = createHmac('sha256', secret).update(timestamp + '.').update(body, 'utf8').digest('hex');\n  return { url, body, timestamp, signature, requestId: event.event_id };\n}\n\nreturn [{ json: signDelivery() }];\n"
       }
     },
     {
@@ -239,7 +272,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        1760,
+        1980,
         0
       ],
       "parameters": {
@@ -272,7 +305,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1980,
+        2200,
         0
       ],
       "parameters": {
@@ -324,12 +357,12 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        2200,
+        2420,
         220
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ status: $json.result ?? ({ 200: \"duplicate\", 202: \"accepted\" })[$json.statusCode] ?? \"hermes_unavailable\" }) }}",
+        "responseBody": "={{ JSON.stringify({ status: $json.result ?? ({ 200: \"duplicate\", 202: \"accepted\" })[$json.statusCode] ?? \"hermes_unavailable\", ...($json.reason ? { reason: $json.reason } : {}) }) }}",
         "options": {
           "responseCode": "={{ $json.status ?? ([200, 202].includes($json.statusCode) ? $json.statusCode : 502) }}",
           "responseHeaders": {
@@ -371,7 +404,7 @@
       "main": [
         [
           {
-            "node": "Read Plane comment metadata",
+            "node": "Comment command?",
             "type": "main",
             "index": 0
           }
@@ -379,6 +412,24 @@
         [
           {
             "node": "Respond to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comment command?": {
+      "main": [
+        [
+          {
+            "node": "Read Plane comment metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read DEV issue",
             "type": "main",
             "index": 0
           }

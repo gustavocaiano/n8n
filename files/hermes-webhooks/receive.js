@@ -8,6 +8,58 @@ const ticketCreated = 'abilio.ticket.created';
 const commentCreated = 'workitem.comment.created';
 const closeCommand = /^@hermes fecha no Abílio(?: — disponível na (v?[0-9]{1,4}(?:\.[0-9]{1,4}){0,2}))?$/u;
 
+// @plane-only
+function receiveStateTransition(event) {
+  const ignore = (reason) => ({ ...reply(200, 'ignored'), reason });
+  const closingStates = ($env.HERMES_BRIDGE_PLANE_CLOSING_STATE_IDS ?? '').trim();
+  if (!closingStates) return ignore('state_transition_disabled');
+  const closingIds = closingStates.split(',').map((id) => id.trim());
+  if (!closingIds.every(uuid)) return ignore('state_transition_unconfigured');
+
+  const {
+    id: issueId, state_id: stateId, updated_by_id: actorId, completed_at: completedAt, updated_at: updatedAt,
+  } = event.data ?? {};
+  const previousStateId = event.previous_attributes?.state_id;
+  if (event.version !== 'v2' || event.entity_type !== 'issue' || !uuid(event.event_id) ||
+      !uuid(event.workspace_id) || !uuid(issueId) || event.entity_id !== issueId ||
+      !uuid(stateId) || !uuid(previousStateId) || previousStateId === stateId) {
+    return ignore('state_transition_not_proven');
+  }
+  if (!closingIds.includes(stateId)) return ignore('state_not_allowed');
+  // In Plane 3.3.3, state-only transfers omit the completion diff. Governance
+  // fallback stamps both timestamps with the same value and preserves the previous updater.
+  if (!uuid(actorId) || !Object.hasOwn(event.previous_attributes, 'completed_at') ||
+      typeof completedAt !== 'string' || !Number.isFinite(Date.parse(completedAt)) ||
+      typeof updatedAt !== 'string' || !Number.isFinite(Date.parse(updatedAt)) || updatedAt === completedAt) {
+    return ignore('state_actor_not_proven');
+  }
+
+  const projectId = $env.HERMES_BRIDGE_PLANE_PROJECT_ID;
+  const operators = ($env.HERMES_BRIDGE_PLANE_OPERATOR_IDS ?? '').split(',').map((id) => id.trim());
+  if (!uuid(projectId) || !operators.every(uuid)) return reply(503, 'bridge_unconfigured');
+  if (!operators.includes(actorId)) return ignore('state_actor_not_allowed');
+  if (event.data.project_id !== projectId || event.data.workspace_id !== event.workspace_id ||
+      event.data.external_source !== 'abilio') return ignore('state_issue_out_of_scope');
+
+  const planeUrl = $env.HERMES_BRIDGE_PLANE_URL;
+  const workspace = $env.HERMES_BRIDGE_PLANE_WORKSPACE;
+  if (!/^https:\/\/[a-z0-9.-]+(?::[0-9]+)?\/?$/i.test(planeUrl ?? '') ||
+      !/^[a-z0-9_-]+$/i.test(workspace ?? '') || !$env.HERMES_BRIDGE_PLANE_API_KEY) {
+    return reply(503, 'bridge_unconfigured');
+  }
+  const issueUrl = `${planeUrl.replace(/\/$/, '')}/api/v1/workspaces/${workspace}/projects/${projectId}/work-items/${issueId}/`;
+  return {
+    issueUrl: `${issueUrl}?expand=state`,
+    issueId,
+    projectId,
+    workspaceId: event.workspace_id,
+    stateId,
+    completedAt,
+    stateEventId: event.event_id,
+  };
+}
+
+// @end-plane-only
 async function receive() {
   const abilio = source === 'abilio';
   const secret = abilio ? $env.HERMES_BRIDGE_ABILIO_WEBHOOK_SECRET : $env.HERMES_BRIDGE_PLANE_WEBHOOK_SECRET;
@@ -57,6 +109,10 @@ async function receive() {
     return { event: { event_type: ticketCreated, event_id, ticket_reference } };
   }
 
+  // @plane-only
+  if (event.event === 'workitem.updated') return receiveStateTransition(event);
+
+  // @end-plane-only
   const ignored = reply(200, 'ignored');
   if (event.version !== 'v2' || event.event !== commentCreated ||
       event.entity_type !== 'issue' || !uuid(event.event_id) || !uuid(event.workspace_id)) {
