@@ -15,6 +15,8 @@ export class IntakeError extends Error {
   }
 }
 
+export const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
 export function digest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -154,11 +156,16 @@ export function completed(input, state) {
 
 // Logs never reach Plane: only this short note, appended once the file is stored.
 // With a one-time link, the note also carries that link (token in the fragment).
-export function logsNote(input, ref, link = null) {
+export function logsNote(input, ref, link = null, signatures = []) {
   const { hours, size, truncated } = input.logs;
   let note = `<p><strong>O utilizador enviou logs das últimas ${hours} horas.</strong><br>` +
     `${size} bytes, truncado: ${truncated ? 'sim' : 'não'}; ` +
     `guardados no n8n: <code>${ref.replace(/[^A-Za-z0-9._-]/g, '')}</code></p>`;
+  if (signatures?.length) {
+    note += '<p><strong>Assinatura técnica:</strong></p><ul>' + signatures.map((s) =>
+      `<li><code>sig:${escapeHtml(s.sig)}</code> <code>${escapeHtml(s.cls)}</code> em <code>${escapeHtml(s.frame)}</code>` +
+      `${s.count > 1 ? ` ×${escapeHtml(s.count)}` : ''}</li>`).join('') + '</ul>';
+  }
   if (link) {
     if (!/^https:\/\/[A-Za-z0-9.:/_-]+#t=[A-Za-z0-9_-]{43}$/.test(link.url)) throw new IntakeError(500, 'invalid_logs_link');
     const expires = new Date(link.expiresAt).toISOString().slice(0, 10);
@@ -173,7 +180,7 @@ export function logsNote(input, ref, link = null) {
 
 export function planeIssue(input, config) {
   const { data } = input;
-  const escape = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const escape = escapeHtml;
   const url = data.instance.url;
   const instanceUrl = /^https?:\/\/[^\s<>"']+$/i.test(url) ? `<a href="${escape(url)}" rel="noopener noreferrer">${escape(url)}</a>` : escape(url);
   return {

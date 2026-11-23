@@ -1,5 +1,6 @@
 import { IntakeError, normalize, planeIssue, completed, logsNote } from './contract.mjs';
 import { LogStore } from './logstore.mjs';
+import { logSignatures } from './signature.mjs';
 import { DAY_MS, linkUrl, newToken } from './links.mjs';
 
 // Plane attachments, each with its own resumable stage. Logs are NOT a slot:
@@ -160,8 +161,11 @@ export class Intake {
     if (state.logs.stage === 'stored' || state.logs.stage === 'linked') {
       // Links disabled mid-flight (rollback): note without the link; the row still expires.
       const link = state.logs.link && this.config.logsLinkBase && { url: linkUrl(this.config.logsLinkBase, state.logs.link.token), expiresAt: state.logs.link.expiresAt };
+      // Signature comes from the exact stored bytes, so replays rebuild the identical note.
+      let signatures = [];
+      try { signatures = logSignatures(input.logs.bytes.toString('utf8')); } catch { /* the intake never depends on it */ }
       // Re-sending the full description is idempotent; Plane never gets the content.
-      await this.plane.updateDescription(state.issueId, issue.description_html + logsNote(input, state.logs.ref, link), signal);
+      await this.plane.updateDescription(state.issueId, issue.description_html + logsNote(input, state.logs.ref, link, signatures), signal);
       // The note now holds the only copy of the token; drop it from the ledger.
       state.logs = { stage: 'noted', ref: state.logs.ref, ...(link ? { linkExpiresAt: link.expiresAt } : {}) };
       this.save(input, state);

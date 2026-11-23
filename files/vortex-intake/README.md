@@ -64,6 +64,21 @@ A alteração preexistente `user.username` foi preservada na nova normalização
   N bytes, truncado: sim/não; guardados no
   n8n: `VORTEX-14_<uuid>.txt`" (substituição completa, repetível) → anexo do utilizador,
   se existir → `completed`. A ledger guarda só a etapa e o nome, nunca o conteúdo.
+- **Assinatura técnica** (opcional): ao montar a nota, `adapter/signature.mjs` extrai dos
+  bytes exatos do ficheiro guardado até 3 assinaturas de exceções (níveis ERROR, CRITICAL,
+  ALERT e EMERGENCY do Laravel, e os campos `exception_type`/`exception_file`/
+  `exception_line` do diagnóstico do grafo) e acrescenta-as depois do parágrafo dos logs e
+  antes do link: `sig:0123456789ab` `Some\Class` em `app/Foo/Bar.php:123` ×3.
+  - Só entram a classe da exceção, um caminho relativo à raiz do projeto com linha (primeira
+    frame da aplicação — `app/`, `resources/`, `routes/`, `database/`, `config/`,
+    `bootstrap/` —, senão a origem da exceção, senão `vendor/...`) e a contagem. **Nunca
+    mensagens nem dados do utilizador**; classes ou caminhos com caracteres fora de
+    identificadores/caminhos simples são ignorados.
+  - `sig` = 12 primeiros hex do sha256 de `classe|caminho` (sem linha, para sobreviver a
+    mudanças de versão): serve ao agente de triagem para encontrar duplicados.
+  - Agrupa por `sig`, ordena pela ocorrência mais recente e mostra as 3 primeiras. É
+    determinística (os mesmos bytes dão a mesma nota, por isso o replay mantém a descrição
+    idêntica) e uma falha na extração nunca afeta o intake: fica só a nota sem assinatura.
 - Resposta: `logs_ref` com o nome do ficheiro (ou `null`); opcional para o Vortex,
   mas o gate n8n exige-o, com o mesmo request_id, quando houve logs.
 - Retenção (ver também [links](#links-de-utilização-única)):

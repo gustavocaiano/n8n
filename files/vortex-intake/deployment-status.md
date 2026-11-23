@@ -143,3 +143,23 @@ iguais.
   `message_thread_id` (não configurado: as mensagens vão para o tópico Geral).
 - Voltar ao chat privado: trocar o `telegramChatId`, ou `restore_workflow_version` para
   `e134c629-…` e publicar.
+
+# Assinatura técnica dos logs — 2026-11-23
+
+O adaptador do commit `b0b989b` (PR #11) foi instalado no LXC 110 com
+`deploy-lxc/install.sh --check` e `--apply`. O n8n e o workflow publicado não mudaram.
+
+- Backup da versão anterior: `/var/backups/vortex-intake-KeccoMlk`.
+- `vortex-intake.service` e `n8n.service` ficaram ativos, `/healthz` respondeu `ok`, e o
+  `signature.mjs` instalado coincide com o do commit.
+- Um pedido sintético com logs foi enviado diretamente ao adaptador
+  (`127.0.0.1:8086/intake`, sem passar pelo webhook público nem pelo aviso no grupo).
+  Resposta HTTP 200 `completed`. Criou o VRTX-35 e o ficheiro
+  `VORTEX-35_63948de4-fab8-4faf-9699-28cecb75a8e1.txt`. A nota no Plane traz
+  `sig:64fc990d1a0e` com `App\Exceptions\ParagonException` em
+  `app/Http/Controllers/ParagonController.php:58`, sem mensagens dos logs.
+- O Hermes leu esse item na ronda seguinte, fez a triagem e abriu o diagnóstico T3
+  (ver `www/vortex/docs/hermes-triagem.md`).
+
+Rollback: seguir «Upgrade de adaptador» no [runbook](deploy-lxc/README.md#rollback) com o
+backup acima. A ledger e os logs recebidos depois da instalação mantêm-se.
